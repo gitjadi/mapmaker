@@ -5,8 +5,10 @@
 import { AREA, LINE, Table, TableBuilder, Value } from './table';
 import { guessProjected, median, prjEpsg, toWgs84 } from './proj';
 import { readZip } from './zip';
+import { SqliteFile } from './sqlite';
+import { GpkgLayer, gpkgLayers, readGpkgLayer } from './gpkg';
 
-export const DATA_ACCEPT = '.geojson,.json,.csv,.txt,.tsv,.kml,.kmz,.gpx,.zip,.shp,.dbf,.prj,.cpg';
+export const DATA_ACCEPT = '.gpkg,.geojson,.json,.csv,.txt,.tsv,.kml,.kmz,.gpx,.zip,.shp,.dbf,.prj,.cpg';
 
 export interface Imported { name: string; table: Table; geometry: string; fields: [string, string][]; note?: string }
 
@@ -268,12 +270,14 @@ function readShp(shp: Uint8Array, dbf: Uint8Array | undefined, prj: string | nul
 type Src = { name: string; data: Uint8Array };
 
 /** Read the data files picked or dropped (several at once is fine; a shapefile's parts belong together). */
-export async function readDataFiles(files: File[]): Promise<Imported[]> {
+export type ChooseLayers = (file: string, layers: GpkgLayer[]) => Promise<GpkgLayer[] | null>;
+
+export async function readDataFiles(files: File[], choose?: ChooseLayers): Promise<Imported[]> {
   const srcs: Src[] = await Promise.all(files.map(async f => ({ name: f.name, data: new Uint8Array(await f.arrayBuffer()) })));
-  return readSources(srcs);
+  return readSources(srcs, choose);
 }
 
-export async function readSources(srcs: Src[]): Promise<Imported[]> {
+export async function readSources(srcs: Src[], choose?: ChooseLayers): Promise<Imported[]> {
   const out: Imported[] = [];
   const byStem = (list: Src[], s: string, e: string) => list.find(x => stem(x.name).toLowerCase() === s.toLowerCase() && ext(x.name) === e);
   for (const s of srcs) {
@@ -294,11 +298,18 @@ export async function readSources(srcs: Src[]): Promise<Imported[]> {
         out.push(readKml(decodeText(kml.data), nm));
         continue;
       }
-      const inner = await readSources(entries.filter(z => !z.name.endsWith('/')));
+      const inner = await readSources(entries.filter(z => !z.name.endsWith('/')), choose);
       if (!inner.length) throw new Error(`“${s.name}” has no data files MapMaker can read.`);
       out.push(...inner);
     } else if (e === 'gpkg') {
-      throw new Error('GeoPackage files can’t be read in the browser yet – open the map in the desktop app, or save the data as GeoJSON or a shapefile.');
+      const db = new SqliteFile(s.data);
+      const layers = gpkgLayers(db);
+      if (!layers.length) throw new Error(`“${s.name}” has no feature tables.`);
+      const picked = layers.length > 1 && choose ? await choose(s.name, layers) : layers;
+      for (const L of picked || []) {
+        await new Promise(r => setTimeout(r, 0));          // let the page show progress between tables
+        out.push(finish(layers.length > 1 ? L.table : nm, readGpkgLayer(db, L)));
+      }
     } else {
       throw new Error(`MapMaker can’t read .${e} files.`);
     }

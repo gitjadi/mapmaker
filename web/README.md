@@ -27,16 +27,25 @@ and map-service (XYZ/WMS) layers, Layers panel (show/hide, lock, rename, drag to
 blend mode), annotation layers with Text, Symbol, Line and Area tools, Properties panel, undo/redo,
 autosave in the browser, Open/Save `.mapmaker`, PNG/JPEG export of the map view.
 
-**Phase 2 (started):** data layers – desktop maps' data shows and saves back; import GeoJSON,
-CSV (lat/lon or SWEREF 99 TM / RT 90 N/E), KML/KMZ, GPX and shapefiles (a .zip, or .shp + .dbf + .prj
-picked together) via *Layer → Data from a file…* or by dropping files on the map; point, line and area
-styles, colour by categories or graduated classes, labels from a field, click a feature to see its
-attributes. Large layers (hundreds of thousands of points) are thinned and cached while panning.
-Not yet: GeoPackage (needs SQLite in the browser), selection by attributes, attribute table, heat maps.
+**Phase 2 (done):** data layers – desktop maps' data shows and saves back; import GeoPackage (read
+with a built-in SQLite reader, several tables at once), GeoJSON, CSV (lat/lon or SWEREF 99 TM / RT 90
+N/E), KML/KMZ, GPX and shapefiles via *Layer → Data from a file…* or by dropping files on the map;
+point, line and area styles, colour by categories or graduated classes, labels from a field, heat
+maps and clusters; click a feature to see its attributes.
 
-**Next:** page layout
-(title, legend, scale bar, north arrow, sources), themes and PDF export → laser terrain, grid, ArcGIS
-downloads.
+**Selecting (the Select menu):** select by attributes (field, condition, value, and new / add /
+remove / within), the rectangle tool (M), select all, invert, clear, zoom to selected, new layer from
+selection, remove selected features. **Attribute table** (Ctrl+T): sort, find, only selected, click
+rows to select features, double-click to zoom.
+
+**Phase 3 (done):** the page – *Page* (top right, Ctrl+L) shows the map on paper with title,
+subtitle, legend, scale bar, north arrow, sources line and pictures/logos; drag elements to move them,
+click them to change them, design themes, paper size and orientation. **Export** (Ctrl+E): the page as
+PDF, PNG or JPEG at 150–600 dpi, or the map view as a picture. (The PDF holds the page as one
+high-resolution picture, not vector text.)
+
+**Next:** laser terrain and hillshade, coordinate grid, ArcGIS service downloads, map series,
+vector PDF.
 
 ## Publishing on your own domain (jadi.zip)
 

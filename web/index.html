@@ -16,14 +16,18 @@
       <div id="doc-title" title="Map title – click to rename"></div>
       <div class="spacer"></div>
       <div id="save-state"></div>
+      <button id="page-toggle" class="page-toggle" title="Show the map on the printed page (Ctrl+L)">Page</button>
     </header>
     <div id="optionsbar"></div>
     <main id="workspace">
       <aside id="toolbar"></aside>
       <section id="stage">
-        <canvas id="map"></canvas>
-        <div id="attribution"></div>
-        <div id="hint"></div>
+        <div id="map-area">
+          <canvas id="map"></canvas>
+          <div id="attribution"></div>
+          <div id="hint"></div>
+        </div>
+        <div id="table-panel"></div>
       </section>
       <aside id="sidebar">
         <section class="panel" id="properties-panel">
@@ -41,6 +45,7 @@
     <footer id="statusbar">
       <span id="status-msg"></span>
       <span class="spacer"></span>
+      <span id="status-page"></span>
       <span id="status-coords"></span>
       <span id="status-scale"></span>
     </footer>

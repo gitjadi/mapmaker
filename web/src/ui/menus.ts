@@ -48,8 +48,12 @@ export function openMenuAt(anchor: HTMLElement, items: MenuItem[]) {
   openPopup = wrap;
 }
 
-export function mountMenus(ed: Editor) {
+export interface MenuHooks { table: { toggle: () => void; open: (id?: string | null) => void } }
+
+export function mountMenus(ed: Editor, hooks: MenuHooks) {
   const nav = document.getElementById('menus')!;
+  const hasData = () => !!ed.dataTarget();
+  const nsel = () => ed.selectedCount(ed.dataTarget()?.id);
   const menus: [string, () => MenuItem[]][] = [
     ['File', () => [
       { label: 'New map', key: 'Ctrl+Alt+N', action: () => ed.newMap() },
@@ -58,24 +62,52 @@ export function mountMenus(ed: Editor) {
       { sep: true },
       { label: 'Add data from a file…', key: 'Ctrl+Shift+O', action: () => ed.importData() },
       { sep: true },
-      { label: 'Export map view as picture…', key: 'Ctrl+E', action: () => ed.exportDialog() },
+      { label: 'Export (PDF, PNG, JPEG)…', key: 'Ctrl+E', action: () => ed.exportDialog() },
     ]],
     ['Edit', () => [
       { label: ed.doc.canUndo() ? `Undo ${ed.doc.undoLabel()}` : 'Undo', key: 'Ctrl+Z', action: () => ed.undo(), disabled: !ed.doc.canUndo() },
       { label: ed.doc.canRedo() ? `Redo ${ed.doc.redoLabel()}` : 'Redo', key: 'Ctrl+Shift+Z', action: () => ed.redo(), disabled: !ed.doc.canRedo() },
       { sep: true },
       { label: 'Duplicate', key: 'Ctrl+D', action: () => ed.duplicate(), disabled: !ed.selLayer && !ed.selItem },
-      { label: 'Delete', key: 'Del', action: () => ed.deleteSelection(), disabled: !ed.selLayer && !ed.selItem },
+      { label: 'Delete', key: 'Del', action: () => ed.deleteSelection(), disabled: !ed.selLayer && !ed.selItem && !ed.selElement },
       { label: 'Deselect', key: 'Esc', action: () => ed.select(ed.selLayer, null), disabled: !ed.selItem },
     ]],
     ['Layer', () => addLayerMenu(ed)],
+    ['Select', () => {
+      const L = ed.dataTarget();
+      const n = nsel();
+      return [
+        { label: L ? `In “${L.name}”${n ? ` – ${n.toLocaleString('sv-SE')} selected` : ''}` : 'No data layer yet' },
+        { label: 'Select by attributes…', key: 'Ctrl+F', action: () => import('./select').then(m => m.selectByAttributes(ed)), disabled: !hasData() },
+        { label: 'Select features tool (rectangle)', key: 'M', action: () => ed.setTool('features'), disabled: !hasData() },
+        { label: 'Select all', key: 'Ctrl+A', action: () => ed.selectAll(), disabled: !hasData() },
+        { label: 'Invert selection', key: 'Ctrl+I', action: () => ed.invertSelection(), disabled: !hasData() },
+        { label: 'Clear selection', key: 'Ctrl+Shift+A', action: () => ed.clearSelection(), disabled: !n },
+        { sep: true },
+        { label: 'Zoom to selected', key: 'Ctrl+3', action: () => ed.zoomToSelected(), disabled: !n },
+        { label: 'New layer from selection', action: () => ed.layerFromSelection(), disabled: !n },
+        { label: 'Remove selected features from layer', action: () => ed.removeSelectedFeatures(), disabled: !n },
+        { sep: true },
+        { label: 'Attribute table', key: 'Ctrl+T', action: () => hooks.table.toggle(), disabled: !hasData() },
+      ];
+    }],
+    ['Page', () => [
+      { label: ed.pageMode ? 'Hide the page (map only)' : 'Show the page', key: 'Ctrl+L', action: () => ed.setPageMode(!ed.pageMode) },
+      { label: 'Fit the page in the window', key: 'Ctrl+1', action: () => ed.fitPage(), disabled: !ed.pageMode },
+      { label: 'Page setup and design…', action: () => { if (!ed.pageMode) ed.setPageMode(true); ed.selectElement('page'); } },
+      { sep: true },
+      { label: 'Insert picture or logo…', action: () => ed.insertPicture() },
+      { sep: true },
+      { label: 'Export the page…', key: 'Ctrl+E', action: () => ed.exportDialog() },
+    ]],
     ['View', () => [
       { label: 'Zoom in', key: '+', action: () => ed.zoomBy(1) },
       { label: 'Zoom out', key: '−', action: () => ed.zoomBy(-1) },
       { label: 'Zoom to Sweden', key: 'Ctrl+0', action: () => ed.zoomToSweden() },
       { label: 'Zoom to selection', key: 'Ctrl+2', action: () => ed.zoomToSelection(), disabled: !ed.selLayer && !ed.selItem },
       { sep: true },
-      { label: 'Show / hide side panels', key: 'Tab', action: () => document.getElementById('app')!.classList.toggle('panels-hidden') },
+      { label: 'Attribute table', key: 'Ctrl+T', action: () => hooks.table.toggle(), disabled: !hasData() },
+      { label: 'Show / hide side panels', key: 'Tab', action: () => { document.getElementById('app')!.classList.toggle('panels-hidden'); ed.resize(); } },
     ]],
     ['Help', () => [
       { label: 'Keyboard shortcuts', action: () => import('./help').then(m => m.showShortcuts()) },

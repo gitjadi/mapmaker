@@ -61,6 +61,9 @@ def main():
     out += ts("DARK2", st.DARK2, "string[]")
     out += ts("QUALITATIVE", st.QUALITATIVE, "Record<string, string[]>")
     out += ts("SEQUENTIAL", st.SEQUENTIAL, "Record<string, string[]>")
+    out += ts("HEAT_RAMPS", {k: [[p, list(c)] for p, c in v] for k, v in st.HEAT_RAMPS.items()}, "Record<string, [number, number[]][]>")
+    out += ts("LEGEND_STYLES", st.LEGEND_STYLES, "Record<string, string>")
+    out += ts("NORTH_STYLES", st.NORTH_STYLES, "Record<string, string>")
     (OUT / "styles.ts").write_text(out, encoding="utf-8")
 
     # tiles.py imports numpy/PIL; read the list without importing the heavy parts if they are missing

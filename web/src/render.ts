@@ -62,13 +62,15 @@ export function sourceFor(L: Layer): (Partial<TileSourceDef> & { urls: string[] 
 }
 
 /** The tile zoom to use for a view: sharp on high-dpi screens, within the source's range. */
-function tileZoom(view: View, dpr: number, src: Partial<TileSourceDef>) {
-  const z = Math.round(view.zoom + Math.log2(dpr) - 0.2);
+function tileZoom(view: View, dpr: number, src: Partial<TileSourceDef>, k = 1) {
+  // tiles at most twice as dense as at reference resolution, so background-map lettering stays readable in print
+  const density = Math.min(k * dpr, 2);
+  const z = Math.round(view.zoom - Math.log2(k) + Math.log2(density) - 0.2);
   return Math.max(src.min_zoom ?? 0, Math.min(src.max_zoom ?? 19, z));
 }
 
-export function visibleTiles(view: View, dpr: number, src: Partial<TileSourceDef>) {
-  const z = tileZoom(view, dpr, src);
+export function visibleTiles(view: View, dpr: number, src: Partial<TileSourceDef>, k = 1) {
+  const z = tileZoom(view, dpr, src, k);
   const n = 2 ** z;
   const scale = view.world / (TILE * n);                 // CSS px per tile pixel
   const [mx0, my0] = view.toMerc(0, 0), [mx1, my1] = view.toMerc(view.width, view.height);
@@ -83,8 +85,8 @@ export function visibleTiles(view: View, dpr: number, src: Partial<TileSourceDef
 }
 
 function drawTiles(ctx: CanvasRenderingContext2D, view: View, dpr: number, src: Partial<TileSourceDef> & { urls: string[] },
-                   cache: TileCache, urlsUsed?: string[]) {
-  for (const t of visibleTiles(view, dpr, src)) {
+                   cache: TileCache, urlsUsed?: string[], k = 1) {
+  for (const t of visibleTiles(view, dpr, src, k)) {
     const url = tileUrl(src, t.z, t.wx, t.y);
     urlsUsed?.push(url);
     const img = cache.get(url);
@@ -140,7 +142,7 @@ export function symbolRect(x: number, y: number, key: string, size: number, badg
   return { x: x - (ax + 2) / 28 * size, y: y - (ay + 2) / 28 * size, w: size, h: size };
 }
 
-function drawSymbol(ctx: CanvasRenderingContext2D, x: number, y: number, key: string, color: string, size: number,
+export function drawSymbol(ctx: CanvasRenderingContext2D, x: number, y: number, key: string, color: string, size: number,
                     badge: boolean, halo: string | null = '#ffffff') {
   const r = symbolRect(x, y, key, size, badge);
   if (badge) {
@@ -312,10 +314,10 @@ export function renderMap(ctx: CanvasRenderingContext2D, view: View, doc: MapDoc
     } else if (L.kind === 'basemap' || L.kind === 'service') {
       const src = sourceFor(L);
       if (src) {
-        drawTiles(c, view, dpr, src, cache, urlsUsed);
+        drawTiles(c, view, dpr, src, cache, urlsUsed, k);
         const labels = L.kind === 'basemap' && L.labels && (src as TileSourceDef).labels?.length
           ? { ...src, urls: (src as TileSourceDef).labels } : null;
-        if (labels) drawTiles(c, view, dpr, labels, cache, urlsUsed);
+        if (labels) drawTiles(c, view, dpr, labels, cache, urlsUsed, k);
       }
     } else if (L.kind === 'data') {
       const t = doc.table(L);

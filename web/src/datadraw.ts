@@ -6,6 +6,8 @@ import type { Layer } from './doc';
 import type { View } from './geo';
 import { AREA, LINE, POINT, Table, classColors } from './table';
 import { DASHES, drawText, layoutText, symbolImage, symbolRect } from './render';
+import { HEAT_RAMPS } from './shared/styles';
+import { numericValues } from './table';
 
 const VECTOR_POINTS = 4000;
 
@@ -37,6 +39,8 @@ function circleSprite(color: string, outline: string | null, ow: number, d: numb
 /** Draw a data layer into ctx (CSS-pixel transform already set, `dpr` device pixels per CSS pixel). */
 export function drawDataLayer(ctx: CanvasRenderingContext2D, view: View, L: Layer, t: Table, k: number, dpr: number): number {
   const st = L.style || {};
+  if (st.render === 'heatmap') return drawHeatmap(ctx, view, L, t, k, dpr);
+  if (st.render === 'clusters') return drawClusters(ctx, view, L, t, k, dpr);
   const prep = t.prepared();
   const ci = t.classes(st.classify);
   const colors = ci ? classColors(st.classify) : null;
@@ -262,3 +266,181 @@ export function highlightFeature(ctx: CanvasRenderingContext2D, view: View, L: L
 }
 
 export { LINE };
+
+// ---------------------------------------------------------------- heat maps and clusters
+/** Density of the features as a smooth colour surface (a Gaussian kernel, three box blurs). */
+export function drawHeatmap(ctx: CanvasRenderingContext2D, view: View, L: Layer, t: Table, k: number, dpr: number): number {
+  const st = L.style || {};
+  const prep = t.prepared();
+  const ci = t.classes(st.classify);
+  const radius = Math.max(2, Number(st.heat_radius ?? 20) * k);
+  const res = Math.max(1, radius * dpr / 5);                 // grid cell in device pixels
+  const pad = Math.ceil(radius * 3 * dpr / res);
+  const gw = Math.ceil(view.width * dpr / res) + 2 * pad, gh = Math.ceil(view.height * dpr / res) + 2 * pad;
+  if (gw * gh > 6e6) return 0;
+  const grid = new Float32Array(gw * gh);
+  const w = view.world;
+  const wf = st.heat_weight && t.cols[st.heat_weight] ? numericValues(t, st.heat_weight) : null;
+  let n = 0;
+  for (let i = 0; i < t.n; i++) {
+    if (!Number.isFinite(prep.mx[i])) continue;
+    if (ci && ci[i] < 0) continue;
+    const gx = Math.floor(((prep.mx[i] - view.cx) * w + view.width / 2) * dpr / res) + pad;
+    const gy = Math.floor(((prep.my[i] - view.cy) * w + view.height / 2) * dpr / res) + pad;
+    if (gx < 0 || gy < 0 || gx >= gw || gy >= gh) continue;
+    const v = wf ? wf[i] : 1;
+    if (!Number.isFinite(v)) continue;
+    grid[gy * gw + gx] += v;
+    n++;
+  }
+  if (!n) return 0;
+  // three box blurs ≈ a Gaussian with sigma = radius / 2
+  const sigma = radius * dpr / res / 2;
+  const box = Math.max(1, Math.round(Math.sqrt(12 * sigma * sigma / 3 + 1)));
+  const tmp = new Float32Array(grid.length);
+  const blurH = (src: Float32Array, dst: Float32Array, r: number) => {
+    const d = 2 * r + 1;
+    for (let y = 0; y < gh; y++) {
+      const o = y * gw;
+      let acc = 0;
+      for (let x = -r; x <= r; x++) if (x >= 0 && x < gw) acc += src[o + x];
+      for (let x = 0; x < gw; x++) {
+        dst[o + x] = acc / d;
+        const add = x + r + 1, sub = x - r;
+        if (add < gw) acc += src[o + add];
+        if (sub >= 0) acc -= src[o + sub];
+      }
+    }
+  };
+  const blurV = (src: Float32Array, dst: Float32Array, r: number) => {
+    const d = 2 * r + 1;
+    for (let x = 0; x < gw; x++) {
+      let acc = 0;
+      for (let y = -r; y <= r; y++) if (y >= 0 && y < gh) acc += src[y * gw + x];
+      for (let y = 0; y < gh; y++) {
+        dst[y * gw + x] = acc / d;
+        const add = y + r + 1, sub = y - r;
+        if (add < gh) acc += src[add * gw + x];
+        if (sub >= 0) acc -= src[sub * gw + x];
+      }
+    }
+  };
+  const r = Math.max(1, Math.floor(box / 2));
+  for (let pass = 0; pass < 3; pass++) { blurH(grid, tmp, r); blurV(tmp, grid, r); }
+  // scale: the 99.5th percentile of the non-empty cells is full colour (÷ intensity)
+  let max = 0;
+  for (let i = 0; i < grid.length; i++) if (grid[i] > max) max = grid[i];
+  if (max <= 0) return 0;
+  const nz: number[] = [];
+  const step = Math.max(1, Math.floor(grid.length / 200000));
+  for (let i = 0; i < grid.length; i += step) if (grid[i] > max * 1e-4) nz.push(grid[i]);
+  nz.sort((a, b) => a - b);
+  const vmax = (nz[Math.floor(nz.length * 0.995)] || max) / Math.max(0.05, Number(st.heat_intensity ?? 1));
+  const ramp = HEAT_RAMPS[st.heat_ramp || 'heat'] || HEAT_RAMPS.heat;
+  const lut = new Uint8ClampedArray(256 * 4);
+  for (let j = 0; j < 256; j++) {
+    const v = j / 255;
+    let a = 0;
+    while (a < ramp.length - 2 && v > ramp[a + 1][0]) a++;
+    const [p0, c0] = ramp[a], [p1, c1] = ramp[a + 1];
+    const f = Math.max(0, Math.min(1, (v - p0) / ((p1 - p0) || 1)));
+    for (let ch = 0; ch < 4; ch++) lut[j * 4 + ch] = c0[ch] + (c1[ch] - c0[ch]) * f;
+  }
+  const iw = gw - 2 * pad, ih = gh - 2 * pad;
+  const img = new ImageData(iw, ih);
+  for (let y = 0; y < ih; y++) for (let x = 0; x < iw; x++) {
+    const v = grid[(y + pad) * gw + x + pad] / vmax;
+    const j = Math.max(0, Math.min(255, Math.round(v * 255))) * 4;
+    const o = (y * iw + x) * 4;
+    img.data[o] = lut[j]; img.data[o + 1] = lut[j + 1]; img.data[o + 2] = lut[j + 2]; img.data[o + 3] = lut[j + 3];
+  }
+  const cv = document.createElement('canvas');
+  cv.width = iw; cv.height = ih;
+  cv.getContext('2d')!.putImageData(img, 0, 0);
+  ctx.save();
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = 'high';
+  ctx.drawImage(cv, 0, 0, iw * res / dpr, ih * res / dpr);
+  ctx.restore();
+  return n;
+}
+
+const short = (n: number) => n >= 10000 ? `${Math.round(n / 1000)}k` : n >= 1000 ? `${(n / 1000).toFixed(1).replace('.0', '')}k` : String(n);
+
+/** Nearby features gathered into circles with their count (a grid in map space, so groups stay put while panning). */
+export function drawClusters(ctx: CanvasRenderingContext2D, view: View, L: Layer, t: Table, k: number, dpr: number): number {
+  const st = L.style || {};
+  const prep = t.prepared();
+  const ci = t.classes(st.classify);
+  const cell = Math.max(20, Number(st.cluster_px ?? 56)) * k;
+  const w = view.world;
+  const [x0, y0] = view.toMerc(-cell, -cell), [x1, y1] = view.toMerc(view.width + cell, view.height + cell);
+  const groups = new Map<number, { n: number; sx: number; sy: number; i: number }>();
+  for (let i = 0; i < t.n; i++) {
+    const mx = prep.mx[i], my = prep.my[i];
+    if (!(mx >= x0 && mx <= x1 && my >= y0 && my <= y1)) continue;
+    if (ci && ci[i] < 0) continue;
+    const key = Math.floor(my * w / cell) * 4294967311 + Math.floor(mx * w / cell);
+    const g = groups.get(key);
+    if (g) { g.n++; g.sx += mx; g.sy += my; } else groups.set(key, { n: 1, sx: mx, sy: my, i });
+  }
+  const px = (m: number) => (m - view.cx) * w + view.width / 2;
+  const py = (m: number) => (m - view.cy) * w + view.height / 2;
+  const color = st.color || '#d95f02';
+  const size = Number(st.size ?? 7) * k;
+  const list = [...groups.values()].sort((a, b) => a.n - b.n);
+  for (const g of list) {
+    const X = px(g.sx / g.n), Y = py(g.sy / g.n);
+    if (g.n === 1) {
+      ctx.beginPath(); ctx.arc(X, Y, size / 2, 0, Math.PI * 2);
+      ctx.fillStyle = color; ctx.fill();
+      if (st.outline) { ctx.lineWidth = Number(st.outline_width ?? 1) * k; ctx.strokeStyle = st.outline; ctx.stroke(); }
+      continue;
+    }
+    const r = (9 + 4.2 * Math.log10(g.n) ** 1.3 * 2.2) * k;
+    ctx.beginPath(); ctx.arc(X, Y, r, 0, Math.PI * 2);
+    ctx.globalAlpha = 0.88; ctx.fillStyle = color; ctx.fill(); ctx.globalAlpha = 1;
+    ctx.lineWidth = 1.6 * k; ctx.strokeStyle = '#ffffff'; ctx.stroke();
+    drawText(ctx, X, Y, short(g.n), { font: 'Segoe UI', size: 7.5 + Math.min(3, Math.log10(g.n)), bold: true, color: '#ffffff', halo: '', align: 'center' }, k);
+  }
+  return t.n;
+}
+
+/** Outline the selected features (all of them if few; otherwise thinned like points). */
+export function highlightMask(ctx: CanvasRenderingContext2D, view: View, L: Layer, t: Table, mask: Uint8Array) {
+  const prep = t.prepared();
+  const w = view.world;
+  const px = (m: number) => (m - view.cx) * w + view.width / 2;
+  const py = (m: number) => (m - view.cy) * w + view.height / 2;
+  const [x0, y0] = view.toMerc(-20, -20), [x1, y1] = view.toMerc(view.width + 20, view.height + 20);
+  const bb = prep.bbox;
+  const r = Number(L.style?.size ?? 7) / 2 + 2.5;
+  const ring = new Path2D(), shapes = new Path2D();
+  let pts = 0;
+  const seen = new Set<number>();
+  for (let i = 0; i < t.n; i++) {
+    if (!mask[i]) continue;
+    if (bb[i * 4 + 2] < x0 || bb[i * 4] > x1 || bb[i * 4 + 3] < y0 || bb[i * 4 + 1] > y1) continue;
+    if (t.kind[i] === POINT) {
+      const X = px(prep.mx[i]), Y = py(prep.my[i]);
+      const c = Math.floor(X / 3) * 100000 + Math.floor(Y / 3);
+      if (seen.has(c)) continue;
+      seen.add(c);
+      ring.moveTo(X + r, Y); ring.arc(X, Y, r, 0, Math.PI * 2);
+      if (++pts > 60000) break;
+    } else {
+      for (let rr = t.featRing[i]; rr < t.featRing[i + 1]; rr++) {
+        for (let v = t.ringStart[rr]; v < t.ringStart[rr + 1]; v++) {
+          const X = px(prep.cm[v * 2]), Y = py(prep.cm[v * 2 + 1]);
+          v === t.ringStart[rr] ? shapes.moveTo(X, Y) : shapes.lineTo(X, Y);
+        }
+        if (t.kind[i] === AREA) shapes.closePath();
+      }
+    }
+  }
+  ctx.setLineDash([]);
+  for (const [col, wd] of [['#ffffff', 4.2], ['#00b4ff', 2.2]] as [string, number][]) {
+    ctx.strokeStyle = col; ctx.lineWidth = wd; ctx.lineJoin = 'round';
+    ctx.stroke(ring); ctx.stroke(shapes);
+  }
+}

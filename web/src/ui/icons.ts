@@ -29,6 +29,10 @@ export const ICONS: Record<string, string> = {
   terrain: S('<path d="M2.5 19 9 8l3.5 5.5L15 10l6.5 9z"/>'),
   data: S('<circle cx="7" cy="8" r="2"/><circle cx="16" cy="6.5" r="2"/><circle cx="11.5" cy="15" r="2"/><circle cx="18" cy="16.5" r="2"/>'),
   grid: S('<path d="M4 4h16v16H4zM4 12h16M12 4v16"/>'),
+  features: S('<rect x="3.5" y="3.5" width="17" height="17" rx="1" stroke-dasharray="3 2.4"/><circle cx="9" cy="10" r="1.6" fill="currentColor"/><circle cx="15" cy="9" r="1.6" fill="currentColor"/><circle cx="12" cy="15" r="1.6" fill="currentColor"/>'),
+  close: S('<path d="M6 6l12 12M18 6 6 18"/>'),
+  page: S('<path d="M6 3.5h8.5L19 8v12.5H6z"/><path d="M14.5 3.5V8H19"/><rect x="8.5" y="11" width="8" height="6" rx=".5"/>'),
+  table: S('<rect x="3.5" y="5" width="17" height="14" rx="1.5"/><path d="M3.5 9.5h17M3.5 14h17M9.5 9.5V19"/>'),
   menu: S('<path d="M4 7h16M4 12h16M4 17h16"/>'),
   panel: S('<rect x="3.5" y="4.5" width="17" height="15" rx="2"/><path d="M14.5 4.5v15"/>'),
 };

@@ -643,3 +643,199 @@ export const SEQUENTIAL: Record<string, string[]> = {
  ]
 };
 
+export const HEAT_RAMPS: Record<string, [number, number[]][]> = {
+ "heat": [
+  [
+   0.0,
+   [
+    255,
+    255,
+    178,
+    0
+   ]
+  ],
+  [
+   0.15,
+   [
+    254,
+    204,
+    92,
+    150
+   ]
+  ],
+  [
+   0.4,
+   [
+    253,
+    141,
+    60,
+    200
+   ]
+  ],
+  [
+   0.7,
+   [
+    240,
+    59,
+    32,
+    230
+   ]
+  ],
+  [
+   1.0,
+   [
+    189,
+    0,
+    38,
+    245
+   ]
+  ]
+ ],
+ "blue": [
+  [
+   0.0,
+   [
+    240,
+    249,
+    255,
+    0
+   ]
+  ],
+  [
+   0.2,
+   [
+    158,
+    202,
+    225,
+    150
+   ]
+  ],
+  [
+   0.5,
+   [
+    66,
+    146,
+    198,
+    200
+   ]
+  ],
+  [
+   1.0,
+   [
+    8,
+    48,
+    107,
+    245
+   ]
+  ]
+ ],
+ "viridis": [
+  [
+   0.0,
+   [
+    68,
+    1,
+    84,
+    0
+   ]
+  ],
+  [
+   0.15,
+   [
+    59,
+    82,
+    139,
+    160
+   ]
+  ],
+  [
+   0.45,
+   [
+    33,
+    145,
+    140,
+    210
+   ]
+  ],
+  [
+   0.75,
+   [
+    94,
+    201,
+    98,
+    230
+   ]
+  ],
+  [
+   1.0,
+   [
+    253,
+    231,
+    37,
+    245
+   ]
+  ]
+ ],
+ "magma": [
+  [
+   0.0,
+   [
+    0,
+    0,
+    4,
+    0
+   ]
+  ],
+  [
+   0.2,
+   [
+    81,
+    18,
+    124,
+    160
+   ]
+  ],
+  [
+   0.5,
+   [
+    183,
+    55,
+    121,
+    210
+   ]
+  ],
+  [
+   0.8,
+   [
+    252,
+    137,
+    97,
+    235
+   ]
+  ],
+  [
+   1.0,
+   [
+    252,
+    253,
+    191,
+    250
+   ]
+  ]
+ ]
+};
+
+export const LEGEND_STYLES: Record<string, string> = {
+ "panel": "Panel",
+ "card": "Card with shadow",
+ "plain": "No box (text with halo)",
+ "strip": "Strip along the frame edge"
+};
+
+export const NORTH_STYLES: Record<string, string> = {
+ "simple": "Simple arrow",
+ "star": "Compass star",
+ "classic": "Classic (arrow and N)",
+ "letter": "Just “N” with a line"
+};
+

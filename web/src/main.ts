@@ -7,12 +7,15 @@ import { mountMenus } from './ui/menus';
 import { mountProperties } from './ui/properties';
 import { mountTools } from './ui/tools';
 import { el } from './ui/dom';
+import { mountAttributeTable } from './ui/attrtable';
+import { selectByAttributes } from './ui/select';
 
 const canvas = document.getElementById('map') as HTMLCanvasElement;
 const ed = new Editor(canvas);
 (window as any).mapmaker = ed;            // handy in the browser console
 
-mountMenus(ed);
+const table = mountAttributeTable(ed);
+mountMenus(ed, { table });
 mountTools(ed);
 mountLayers(ed);
 mountProperties(ed);
@@ -40,6 +43,14 @@ ed.on('change', renderTitle);
 const saveState = document.getElementById('save-state')!;
 ed.on('saved' as any, () => { saveState.textContent = 'Kept in this browser'; });
 
+// the Page button (top right): show the map on the printed page
+const pageBtn = document.getElementById('page-toggle')!;
+pageBtn.onclick = () => ed.setPageMode(!ed.pageMode);
+const renderPageBtn = () => pageBtn.classList.toggle('on', ed.pageMode);
+ed.on('page', renderPageBtn);
+ed.on('change', renderPageBtn);
+
+const pageZoom = document.getElementById('status-page')!;
 const coords = document.getElementById('status-coords')!;
 const scale = document.getElementById('status-scale')!;
 const msg = document.getElementById('status-msg')!;
@@ -48,6 +59,7 @@ ed.on('view', () => {
   const ll = ed.hoverLonlat();
   coords.textContent = ll ? `${ll[1].toFixed(5)}° N  ${ll[0].toFixed(5)}° E` : '';
   scale.textContent = ed.scaleText();
+  pageZoom.textContent = ed.pageMode ? `Page ${ed.pagePercent()} %` : '';
 });
 ed.on('status', () => {
   const u = ed.unsupportedNames();
@@ -70,10 +82,13 @@ document.addEventListener('keydown', e => {
     const cmds: Record<string, () => void> = {
       z: () => (e.shiftKey ? ed.redo() : ed.undo()), y: () => ed.redo(), s: () => ed.saveMap(), o: () => ed.openMap(),
       e: () => ed.exportDialog(), d: () => ed.duplicate(), '0': () => ed.zoomToSweden(), '2': () => ed.zoomToSelection(),
+      '3': () => ed.zoomToSelected(), '1': () => ed.fitPage(), l: () => ed.setPageMode(!ed.pageMode), t: () => table.toggle(),
+      f: () => selectByAttributes(ed), i: () => ed.invertSelection(),
+      a: () => (e.shiftKey ? ed.clearSelection() : ed.selectAll()),
     };
     if (e.altKey && k === 'n') { e.preventDefault(); ed.newMap(); return; }
     if (e.shiftKey && k === 'o') { e.preventDefault(); ed.importData(); return; }
-    if (cmds[k] && !(typing(e) && (k === 'z' || k === 'y'))) { e.preventDefault(); cmds[k](); }
+    if (cmds[k] && !(typing(e) && ['z', 'y', 'a', 'i'].includes(k))) { e.preventDefault(); cmds[k](); }
     return;
   }
   if (typing(e)) return;
@@ -81,7 +96,7 @@ document.addEventListener('keydown', e => {
   const tool = TOOLS.find(t => t.key.toLowerCase() === k);
   if (tool && !e.altKey) { ed.setTool(tool.id); return; }
   if (e.key === 'Delete' || e.key === 'Backspace') { e.preventDefault(); ed.deleteSelection(); return; }
-  if (e.key === 'Escape') { ed.drawing ? ed.cancelDrawing() : ed.select(ed.selLayer, null); return; }
+  if (e.key === 'Escape') { ed.drawing ? ed.cancelDrawing() : ed.selElement ? ed.selectElement(null) : ed.select(ed.selLayer, null); return; }
   if (e.key === 'Enter' && ed.drawing) { ed.finishDrawing(); return; }
   if (e.key === '+' || e.key === '=') { ed.zoomBy(0.5); return; }
   if (e.key === '-' || e.key === '_') { ed.zoomBy(-0.5); return; }
@@ -125,6 +140,7 @@ window.addEventListener('pagehide', () => { ed.autosaveNow(); });
   const restored = await ed.restoreAutosave();
   if (!restored) ed.zoomToSweden();
   renderTitle();
+  renderPageBtn();
   ed.emit('view');
   ed.emit('tool');
   if (restored) ed.status('Carried on where you left off');

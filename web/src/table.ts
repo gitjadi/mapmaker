@@ -243,6 +243,51 @@ export class Table {
     return hit;
   }
 
+  /** A new table of the features at `idx` (in that order). */
+  take(idx: ArrayLike<number>): Table {
+    const n = idx.length;
+    const x = new Float64Array(n), y = new Float64Array(n), kind = new Int8Array(n);
+    const featRing = new Float64Array(n + 1);
+    let nr = 0, nv = 0;
+    for (let j = 0; j < n; j++) {
+      const i = idx[j];
+      const r0 = this.featRing[i], r1 = this.featRing[i + 1];
+      nr += r1 - r0;
+      nv += this.ringStart[r1] - this.ringStart[r0];
+    }
+    const coords = new Float64Array(nv * 2), ringStart = new Float64Array(nr + 1);
+    let r = 0, v = 0;
+    for (let j = 0; j < n; j++) {
+      const i = idx[j];
+      x[j] = this.x[i]; y[j] = this.y[i]; kind[j] = this.kind[i];
+      for (let rr = this.featRing[i]; rr < this.featRing[i + 1]; rr++) {
+        const a = this.ringStart[rr], b = this.ringStart[rr + 1];
+        coords.set(this.coords.subarray(a * 2, b * 2), v * 2);
+        v += b - a;
+        ringStart[++r] = v;
+      }
+      featRing[j + 1] = r;
+    }
+    const cols: Record<string, Col> = {};
+    for (const f of this.fields) {
+      const c = this.cols[f];
+      if (c.kind === 'num') { const vals = new Float64Array(n); for (let j = 0; j < n; j++) vals[j] = c.values[idx[j]]; cols[f] = { kind: 'num', values: vals, isInt: c.isInt }; }
+      else {
+        const remap = new Int32Array(c.cats.length).fill(-1);
+        const cats: string[] = [];
+        const codes = new Int32Array(n);
+        for (let j = 0; j < n; j++) {
+          const k = c.codes[idx[j]];
+          if (k < 0) { codes[j] = -1; continue; }
+          if (remap[k] < 0) { remap[k] = cats.length; cats.push(c.cats[k]); }
+          codes[j] = remap[k];
+        }
+        cols[f] = { kind: 'cat', codes, cats };
+      }
+    }
+    return new Table(x, y, kind, coords, ringStart, featRing, cols, [...this.fields]);
+  }
+
   // -- files
   toEntries(prefix: string): ZipEntry[] {
     if (!this.files) {
@@ -364,3 +409,83 @@ function classIndex(t: Table, cls: any): Int16Array {
 export function classColors(cls: any): string[] {
   return [...(cls.classes || []).map((c: any) => c.color), cls.other?.color || '#b4b4b4'];
 }
+
+// ---------------------------------------------------------------- selecting by attributes
+export const OPS: [string, string][] = [['eq', 'is'], ['ne', 'is not'], ['in', 'is one of'], ['contains', 'contains'],
+  ['not_contains', 'does not contain'], ['starts', 'starts with'], ['gt', '>'], ['ge', '≥'], ['lt', '<'], ['le', '≤'],
+  ['empty', 'is empty'], ['not_empty', 'has a value']];
+export const NO_VALUE_OPS = ['empty', 'not_empty'];
+
+const toNum = (s: unknown) => { const v = Number(String(s ?? '').trim().replace(/\s/g, '').replace(',', '.')); return String(s ?? '').trim() !== '' && Number.isFinite(v) ? v : null; };
+
+/** Mask of the features where `field op value` holds. Text comparisons ignore case. */
+export function query(t: Table, field: string, op: string, value: string): Uint8Array {
+  const col = t.cols[field];
+  if (!col) throw new Error(`No field ${field}`);
+  const out = new Uint8Array(t.n);
+  if (op === 'empty' || op === 'not_empty') {
+    const want = op === 'not_empty';
+    for (let i = 0; i < t.n; i++) out[i] = +((col.kind === 'num' ? Number.isFinite(col.values[i]) : col.codes[i] >= 0) === want);
+    return out;
+  }
+  const sval = (value ?? '').trim();
+  const txt = sval.toLocaleLowerCase();
+  if (col.kind === 'num' && !['contains', 'not_contains', 'starts'].includes(op)) {
+    const v = col.values;
+    if (op === 'in') {
+      const set = new Set(sval.split(/[;,]\s*|\s+/).map(toNum).filter((x): x is number => x !== null));
+      for (let i = 0; i < t.n; i++) out[i] = +set.has(v[i]);
+      return out;
+    }
+    const nv = toNum(sval);
+    if (nv === null) throw new Error(`“${sval}” isn’t a number, and ${field} holds numbers.`);
+    const f: Record<string, (x: number) => boolean> = {
+      eq: x => x === nv, ne: x => Number.isFinite(x) && x !== nv, gt: x => x > nv, ge: x => x >= nv, lt: x => x < nv, le: x => x <= nv,
+    };
+    for (let i = 0; i < t.n; i++) out[i] = +f[op](v[i]);
+    return out;
+  }
+  // text (or numbers compared as text): evaluate once per distinct value
+  const cats = col.kind === 'cat' ? col.cats : null;
+  const textOf = (i: number) => cats ? (col.kind === 'cat' && col.codes[i] >= 0 ? cats[col.codes[i]] : null) : colText(col, i) || null;
+  const nv = toNum(sval);
+  const items = op === 'in' ? sval.split(/\s*[;,]\s*/).filter(Boolean).map(x => x.toLocaleLowerCase()) : [];
+  const pred = (c: string | null): boolean => {
+    if (c === null) return op === 'ne' || op === 'not_contains';
+    const lc = c.toLocaleLowerCase();
+    switch (op) {
+      case 'eq': return lc === txt;
+      case 'ne': return lc !== txt;
+      case 'in': return items.includes(lc);
+      case 'contains': return lc.includes(txt);
+      case 'not_contains': return !lc.includes(txt);
+      case 'starts': return lc.startsWith(txt);
+      default: {
+        const a = toNum(c);
+        if (a !== null && nv !== null) return op === 'gt' ? a > nv : op === 'ge' ? a >= nv : op === 'lt' ? a < nv : a <= nv;
+        const cmp = lc.localeCompare(txt, 'sv');
+        return op === 'gt' ? cmp > 0 : op === 'ge' ? cmp >= 0 : op === 'lt' ? cmp < 0 : cmp <= 0;
+      }
+    }
+  };
+  if (cats && col.kind === 'cat') {
+    const per = Uint8Array.from(cats, c => +pred(c));
+    const none = +pred(null);
+    for (let i = 0; i < t.n; i++) out[i] = col.codes[i] < 0 ? none : per[col.codes[i]];
+  } else {
+    for (let i = 0; i < t.n; i++) out[i] = +pred(textOf(i));
+  }
+  return out;
+}
+
+/** Combine a query result with the current selection: new, add, remove, or within (keep only those also matching). */
+export function combine(current: Uint8Array | null, m: Uint8Array, method: string): Uint8Array {
+  if (method === 'new' || !current) return method === 'remove' ? new Uint8Array(m.length) : m;
+  const out = new Uint8Array(m.length);
+  for (let i = 0; i < m.length; i++) {
+    out[i] = method === 'add' ? current[i] | m[i] : method === 'remove' ? current[i] & (m[i] ^ 1) : current[i] & m[i];
+  }
+  return out;
+}
+
+export const countMask = (m: Uint8Array | null | undefined) => { let n = 0; if (m) for (let i = 0; i < m.length; i++) n += m[i]; return n; };

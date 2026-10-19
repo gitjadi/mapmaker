@@ -17,7 +17,7 @@ export function mountTools(ed: Editor) {
   function renderBar() {
     bar.innerHTML = '';
     TOOLS.forEach((t, i) => {
-      if (i === 2) bar.append(el('div', { class: 'tool-sep' }));
+      if (i === 3) bar.append(el('div', { class: 'tool-sep' }));
       bar.append(el('button', {
         class: 'tool' + (ed.tool === t.id ? ' active' : ''), title: `${t.label} (${t.key})`, 'aria-label': t.label,
         html: icon(t.id), onclick: () => ed.setTool(t.id),

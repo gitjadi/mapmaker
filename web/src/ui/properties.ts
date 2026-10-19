@@ -4,7 +4,8 @@
 import type { Editor } from '../editor';
 import { Item, Layer, KIND_LABELS, WEB_KINDS, itemTitle, textStyle } from '../doc';
 import { BASEMAPS } from '../shared/basemaps';
-import { DASHES, FONTS, QUALITATIVE, SEQUENTIAL, SWATCHES, TEXT_PRESETS } from '../shared/styles';
+import { DASHES, FONTS, HEAT_RAMPS, LEGEND_STYLES, NORTH_STYLES, QUALITATIVE, SEQUENTIAL, SWATCHES, TEXT_PRESETS, THEMES } from '../shared/styles';
+import { PAPERS, design } from '../page';
 import { AREA, LINE, POINT, Table, colCounts, colText, makeCategories, makeGraduated, numericValues } from '../table';
 const colCountsN = (t: Table, f: string) => colCounts(t.cols[f], 61).length;
 import { SYMBOLS, SYMBOL_CATEGORIES } from '../shared/symbols';
@@ -14,7 +15,7 @@ import { check, colorInput, el, row, select, slider } from './dom';
 export function mountProperties(ed: Editor) {
   const box = document.getElementById('properties')!;
   let shownFor = '';
-  const key = () => `${ed.selLayer}|${ed.selItem}|${ed.selFeature?.index ?? ''}`;
+  const key = () => `${ed.selLayer}|${ed.selItem}|${ed.selFeature?.index ?? ''}|${ed.selElement ?? ''}`;
 
   /** A change to the document, merged into one undo step while it keeps coming (typing, sliders). */
   const change = (label: string, key: string, f: () => void) => {
@@ -28,7 +29,8 @@ export function mountProperties(ed: Editor) {
     box.innerHTML = '';
     const it = ed.selectedItem();
     const L = ed.selectedLayer();
-    if (it && L) itemProps(L, it);
+    if (ed.selElement && ed.pageMode) pageProps(ed.selElement);
+    else if (it && L) itemProps(L, it);
     else if (L && ed.selFeature?.layerId === L.id && ed.doc.table(L)) featureProps(L, ed.doc.table(L)!, ed.selFeature.index);
     else if (L) layerProps(L);
     else mapProps();
@@ -107,6 +109,30 @@ export function mountProperties(ed: Editor) {
     const numFields: [string, string][] = t.fields.filter(f => {
       const v = numericValues(t, f); for (let i = 0; i < Math.min(v.length, 2000); i++) if (Number.isFinite(v[i])) return true; return false;
     }).map(f => [f, f]);
+
+    const nsel = ed.selectedCount(L.id);
+    if (nsel) box.append(el('div', { class: 'note' }, `${nsel.toLocaleString('sv-SE')} selected – Select menu for more.`));
+
+    // show as points (or lines and areas), a heat map, or clusters
+    if (kinds.has(POINT)) {
+      box.append(row('Show as', select([['points', 'Features'], ['heatmap', 'Heat map (density)'], ['clusters', 'Clusters with counts']], st.render || 'points', v =>
+        change('Show as', 'render:' + L.id, () => { st.render = v; render(); }))));
+      if (st.render === 'heatmap') {
+        box.append(el('div', { class: 'prop-group' }, 'Heat map'));
+        box.append(row('Radius (px)', slider(st.heat_radius ?? 20, 3, 150, 1, v => change('Heat radius', 'hr:' + L.id, () => { st.heat_radius = v; }))));
+        box.append(row('Intensity', slider(st.heat_intensity ?? 1, 0.2, 5, 0.1, v => change('Heat intensity', 'hi:' + L.id, () => { st.heat_intensity = v; }), v => v.toFixed(1))));
+        box.append(row('Colours', select(Object.keys(HEAT_RAMPS).map(k => [k, k[0].toUpperCase() + k.slice(1)]), st.heat_ramp || 'heat', v => change('Heat colours', 'hc:' + L.id, () => { st.heat_ramp = v; }))));
+        box.append(row('Weight', select([['', 'Each feature counts 1'], ...numFields], st.heat_weight || '', v => change('Heat weight', 'hw:' + L.id, () => { st.heat_weight = v || null; }))));
+      } else if (st.render === 'clusters') {
+        box.append(el('div', { class: 'prop-group' }, 'Clusters'));
+        box.append(row('Cluster size', slider(st.cluster_px ?? 56, 20, 200, 2, v => change('Cluster size', 'cp:' + L.id, () => { st.cluster_px = v; }))));
+        colorRow('Colour', st.color, v => change('Colour', 'pc:' + L.id, () => { st.color = v; }));
+      }
+    }
+    if (st.render === 'heatmap' || st.render === 'clusters') {
+      box.append(el('div', { class: 'btn-row' }, el('button', { class: 'btn', onclick: () => ed.zoomToSelection() }, 'Zoom to layer')));
+      return;
+    }
 
     box.append(el('div', { class: 'prop-group' }, 'Colour'));
     box.append(row('Colour by', select([['single', 'One colour'], ['categories', 'Categories (one per value)'], ['graduated', 'Graduated (number classes)']], mode, v => {
@@ -198,6 +224,111 @@ export function mountProperties(ed: Editor) {
     box.append(el('div', { class: 'btn-row' },
       el('button', { class: 'btn', onclick: () => ed.zoomToSelection() }, 'Zoom to'),
       el('button', { class: 'btn', onclick: () => ed.select(L.id) }, 'Layer style')));
+  }
+
+  // ---------------------------------------------------------------- the page
+  function pageProps(elk: string) {
+    const page = ed.doc.page;
+    const d = design(page);
+    const setD = (k: string, label: string) => (v: any) => change(label, 'd:' + k, () => { page.design = { ...(page.design || {}), [k]: v }; });
+    const sub = (name: string, label: string, k: string) => (v: any) => change(label, name + ':' + k, () => { page[name] = { ...(page[name] || {}), [k]: v }; });
+    const head = (t: string, s = '') => box.append(el('div', { class: 'prop-title' }, t), el('div', { class: 'prop-sub' }, s));
+
+    if (elk.startsWith('image:')) {
+      const im = (page.images || []).find((x: any) => 'image:' + x.id === elk);
+      if (!im) return;
+      head('Picture', 'Drag it on the page; drag its lower right corner to resize.');
+      box.append(row('Width (mm)', slider(im.w ?? 30, 3, 300, 0.5, v => change('Picture size', 'imw:' + im.id, () => { im.w = v; }))));
+      box.append(row('Opacity %', slider(Math.round((im.opacity ?? 1) * 100), 5, 100, 1, v => change('Picture opacity', 'imo:' + im.id, () => { im.opacity = v / 100; }))));
+      box.append(el('div', { class: 'btn-row' }, el('button', { class: 'btn danger', onclick: () => ed.deleteSelection() }, 'Remove picture')));
+      return;
+    }
+    if (elk === 'legend') {
+      const lg = page.legend || {};
+      head('Legend', 'Lists the visible data layers, and labels and symbols marked “Show in the legend”. Drag it to move it.');
+      box.append(row('', el('div', { class: 'checks' }, check('Show the legend', lg.show !== false, sub('legend', 'Legend', 'show')))));
+      const t = el('input', { type: 'text', value: lg.title || '', placeholder: 'No heading (recommended)' });
+      t.oninput = () => sub('legend', 'Legend heading', 'title')(t.value);
+      box.append(row('Heading', t));
+      box.append(row('Style', select(Object.entries(LEGEND_STYLES), d.legend_style, setD('legend_style', 'Legend style'))));
+      box.append(row('Columns', select(['1', '2', '3', '4'].map(n => [n, n]), String(d.legend_columns || 1), v => setD('legend_columns', 'Legend columns')(Number(v)))));
+      box.append(row('Text size (pt)', slider(Number(d.legend_text_size), 6, 16, 0.5, setD('legend_text_size', 'Legend text size'))));
+      colorRow('Background', d.legend_bg, setD('legend_bg', 'Legend background'));
+      box.append(row('Opacity %', slider(Math.round(Number(d.legend_opacity) * 100), 0, 100, 1, v => setD('legend_opacity', 'Legend opacity')(v / 100))));
+      return;
+    }
+    if (elk === 'scalebar') {
+      const sb = page.scalebar || {};
+      head('Scale bar', 'A round-numbered bar, at most about a fifth of the map’s width. Drag it to move it.');
+      box.append(row('', el('div', { class: 'checks' }, check('Show the scale bar', sb.show !== false, sub('scalebar', 'Scale bar', 'show')))));
+      box.append(row('Style', select([['bar', 'Alternating bar'], ['hollow', 'Half filled'], ['line', 'Line with ticks']], sb.style || 'bar', sub('scalebar', 'Scale bar style', 'style'))));
+      box.append(row('Units', select([['metric', 'Metres / kilometres'], ['imperial', 'Feet / miles']], sb.units || 'metric', sub('scalebar', 'Scale bar units', 'units'))));
+      box.append(row('', el('div', { class: 'checks' }, check('Also write the scale (1 : 50 000)', !!d.scale_ratio, setD('scale_ratio', 'Scale ratio')))));
+      box.append(row('Text size (pt)', slider(Number(d.scale_text_size), 5, 14, 0.5, setD('scale_text_size', 'Scale text size'))));
+      return;
+    }
+    if (elk === 'north') {
+      const nr = page.north || {};
+      head('North arrow', 'Simple and small – north is up on these maps. Drag it to move it.');
+      box.append(row('', el('div', { class: 'checks' }, check('Show the north arrow', nr.show !== false, sub('north', 'North arrow', 'show')))));
+      box.append(row('Style', select(Object.entries(NORTH_STYLES), d.north_style, setD('north_style', 'North arrow style'))));
+      colorRow('Colour', d.north_color, setD('north_color', 'North arrow colour'));
+      return;
+    }
+    if (elk === 'credits') {
+      const c = page.credits || {};
+      head('Sources and credits', 'A small line under the map.');
+      box.append(row('', el('div', { class: 'checks' }, check('Show the line', c.show !== false, sub('credits', 'Credits', 'show')))));
+      const t = el('input', { type: 'text', value: c.text || '', placeholder: 'e.g. Map: your name, 2026' });
+      t.oninput = () => sub('credits', 'Credits text', 'text')(t.value);
+      box.append(row('Text', t));
+      box.append(row('', el('div', { class: 'checks' }, check('Add the map sources automatically', c.auto !== false, sub('credits', 'Credits', 'auto')))));
+      box.append(row('Text size (pt)', slider(Number(d.credits_size), 4, 12, 0.5, setD('credits_size', 'Credits size'))));
+      return;
+    }
+    // the title, or the page as a whole
+    const isTitle = elk === 'title';
+    head(isTitle ? 'Title' : 'Page', isTitle ? 'Double-click the title on the page to edit it here.' : 'Paper, title and the map elements. Click an element on the page to change it.');
+    const title = el('input', { type: 'text', id: 'prop-page-title', value: page.title || '', placeholder: 'A title for the map' });
+    title.oninput = () => change('Title', 'ptitle', () => { page.title = title.value; });
+    const subt = el('input', { type: 'text', value: page.subtitle || '', placeholder: 'Subtitle (optional)' });
+    subt.oninput = () => change('Subtitle', 'psub', () => { page.subtitle = subt.value; });
+    box.append(row('Title', title), row('Subtitle', subt));
+    const ts = page.title_style || {};
+    const setT = (k: string, label: string) => (v: any) => change(label, 'ts:' + k, () => { page.title_style = { ...(page.title_style || {}), [k]: v }; });
+    const fonts: [string, string][] = Object.values(FONTS).flat().map(f => [f, f]);
+    box.append(row('Title font', select(fonts, ts.font || 'Georgia', setT('font', 'Title font'))));
+    box.append(row('Title size (pt)', slider(Number(ts.size ?? 22), 10, 60, 1, setT('size', 'Title size'))));
+    colorRow('Title colour', ts.color || '#1d1d1d', setT('color', 'Title colour'));
+    box.append(row('', el('div', { class: 'checks' }, check('Bold', ts.bold ?? true, setT('bold', 'Bold')), check('Italic', !!ts.italic, setT('italic', 'Italic')))));
+    box.append(row('Align', select([['left', 'Left'], ['center', 'Centre']], page.title_align || 'left', v => change('Title align', 'talign', () => { page.title_align = v; }))));
+    box.append(row('Position', select([['above', 'Above the map'], ['inside', 'Inside the map, top left']], d.title_position, setD('title_position', 'Title position'))));
+    if (isTitle) return;
+
+    box.append(el('div', { class: 'prop-group' }, 'Paper'));
+    box.append(row('Size', select(Object.keys(PAPERS).map(k => [k, k]), page.paper || 'A4', v => change('Paper', 'paper', () => { page.paper = v; ed.fitPage(); }))));
+    box.append(row('Orientation', select([['landscape', 'Landscape'], ['portrait', 'Portrait']], page.landscape !== false ? 'landscape' : 'portrait', v => change('Orientation', 'orient', () => { page.landscape = v === 'landscape'; ed.fitPage(); }))));
+    box.append(row('Margin (mm)', slider(Number(page.margin_mm ?? 12), 0, 40, 1, v => change('Margin', 'margin', () => { page.margin_mm = v; }))));
+    colorRow('Paper colour', page.background || '#ffffff', v => change('Paper colour', 'pbg', () => { page.background = v; }));
+
+    box.append(el('div', { class: 'prop-group' }, 'Design'));
+    const themes = el('div', { class: 'swatches', style: { gap: '6px' } }, ...Object.entries(THEMES).map(([k, th]: [string, any]) =>
+      el('button', { class: 'btn' + (d.theme === k ? ' primary' : ''), style: { width: 'auto', height: 'auto', padding: '4px 8px' }, title: 'Apply this theme (also restyles labels and grey background maps)', onclick: () => ed.applyTheme(k) }, th.label)));
+    box.append(row('Theme', themes));
+    box.append(row('Font', select(fonts, d.font, setD('font', 'Element font'))));
+    colorRow('Map background', d.map_bg, setD('map_bg', 'Map background'));
+    box.append(row('', el('div', { class: 'checks' }, check('Frame line around the map', page.neatline !== false, v => change('Frame', 'neat', () => { page.neatline = v; })))));
+    box.append(row('Frame', select([['single', 'Single line'], ['double', 'Double line']], d.frame_style, setD('frame_style', 'Frame style'))));
+    colorRow('Frame colour', d.frame_color, setD('frame_color', 'Frame colour'));
+
+    box.append(el('div', { class: 'prop-group' }, 'Map elements'));
+    const elems: [string, string][] = [['legend', 'Legend'], ['scalebar', 'Scale bar'], ['north', 'North arrow'], ['credits', 'Sources and credits']];
+    box.append(el('div', { class: 'elem-list' }, ...elems.map(([k, label]) => el('div', { class: 'checks', style: { justifyContent: 'space-between' } },
+      check(label, (page[k] || {}).show !== false, sub(k, label, 'show')),
+      el('button', { class: 'btn', style: { padding: '2px 8px' }, onclick: () => ed.selectElement(k) }, 'Settings…')))));
+    box.append(el('div', { class: 'btn-row' },
+      el('button', { class: 'btn', onclick: () => ed.insertPicture() }, 'Insert picture or logo…'),
+      el('button', { class: 'btn primary', onclick: () => ed.exportDialog() }, 'Export…')));
   }
 
   // ---------------------------------------------------------------- items
@@ -305,12 +436,20 @@ export function mountProperties(ed: Editor) {
     }
     render();
   });
+  ed.on('page', render);
+  ed.on('edit-title', () => {
+    ed.selectElement('title');
+    setTimeout(() => { const t = document.getElementById('prop-page-title') as HTMLInputElement | null; if (t) { t.focus(); t.select(); } }, 0);
+  });
+  ed.on('data-selection', () => { if (ed.selectedLayer()?.kind === 'data' && !ed.selItem && !box.contains(document.activeElement)) render(); });
   ed.on('edit-text' as any, () => {
-    // after the click that placed the label has finished (it would take the focus back)
-    setTimeout(() => {
+    // at once (so no keystroke is lost), and again after the click has finished in case it took the focus
+    const go = () => {
       const t = document.getElementById('prop-text') as HTMLTextAreaElement | null;
-      if (t) { t.focus(); t.select(); }
-    }, 0);
+      if (t && document.activeElement !== t) { t.focus(); t.select(); }
+    };
+    go();
+    setTimeout(go, 0);
   });
 }
 
