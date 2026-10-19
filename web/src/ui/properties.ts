@@ -10,7 +10,7 @@ import { AREA, LINE, POINT, Table, colCounts, colText, makeCategories, makeGradu
 const colCountsN = (t: Table, f: string) => colCounts(t.cols[f], 61).length;
 import { SYMBOLS, SYMBOL_CATEGORIES } from '../shared/symbols';
 import { symbolSvg } from '../render';
-import { check, colorInput, el, row, select, slider } from './dom';
+import { check, colorInput, editingIn, el, row, select, slider } from './dom';
 
 export function mountProperties(ed: Editor) {
   const box = document.getElementById('properties')!;
@@ -25,6 +25,9 @@ export function mountProperties(ed: Editor) {
   };
 
   function render() {
+    // keep the scroll position when the same thing is shown again (after a change)
+    const same = shownFor === key();
+    const scroll = box.scrollTop;
     shownFor = key();
     box.innerHTML = '';
     const it = ed.selectedItem();
@@ -34,6 +37,7 @@ export function mountProperties(ed: Editor) {
     else if (L && ed.selFeature?.layerId === L.id && ed.doc.table(L)) featureProps(L, ed.doc.table(L)!, ed.selFeature.index);
     else if (L) layerProps(L);
     else mapProps();
+    if (same) box.scrollTop = scroll;
   }
 
   // ---------------------------------------------------------------- the map
@@ -428,7 +432,7 @@ export function mountProperties(ed: Editor) {
   ed.on('selection', render);
   ed.on('change', () => {
     // rebuild only when it isn't being edited (keeps focus while typing and dragging sliders)
-    if (box.contains(document.activeElement) && shownFor === key()) {
+    if (editingIn(box) && shownFor === key()) {
       const t = box.querySelector('.prop-title');
       const it = ed.selectedItem(), L = ed.selectedLayer();
       if (t) t.textContent = it ? itemTitle(it) : L ? L.name : 'Map';
@@ -441,7 +445,7 @@ export function mountProperties(ed: Editor) {
     ed.selectElement('title');
     setTimeout(() => { const t = document.getElementById('prop-page-title') as HTMLInputElement | null; if (t) { t.focus(); t.select(); } }, 0);
   });
-  ed.on('data-selection', () => { if (ed.selectedLayer()?.kind === 'data' && !ed.selItem && !box.contains(document.activeElement)) render(); });
+  ed.on('data-selection', () => { if (ed.selectedLayer()?.kind === 'data' && !ed.selItem && !editingIn(box)) render(); });
   ed.on('edit-text' as any, () => {
     // at once (so no keystroke is lost), and again after the click has finished in case it took the focus
     const go = () => {

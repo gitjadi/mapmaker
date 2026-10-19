@@ -94,3 +94,14 @@ export const message = (title: string, text: string) => dialog(title, [el('p', {
 export async function confirmDialog(title: string, text: string, ok = 'OK'): Promise<boolean> {
   return (await dialog(title, [el('p', {}, text)], [{ label: 'Cancel', value: null }, { label: ok, value: 'ok', primary: true }])) === 'ok';
 }
+
+/** True while the user is typing in or dragging a control inside `box` – rebuilding it then would lose the
+ * focus. Buttons, checkboxes and drop-down lists don't count: after those the panel should refresh. */
+export function editingIn(box: HTMLElement): boolean {
+  const a = document.activeElement as HTMLElement | null;
+  if (!a || !box.contains(a)) return false;
+  if (a.tagName === 'TEXTAREA') return true;
+  if (a.tagName !== 'INPUT') return false;
+  const t = (a as HTMLInputElement).type;
+  return ['text', 'number', 'range', 'search', 'url', 'color', 'email'].includes(t);
+}

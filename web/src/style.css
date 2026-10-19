@@ -42,7 +42,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
 #optionsbar .sep { width: 1px; height: 20px; background: var(--line); }
 
 /* ---- workspace */
-#workspace { display: grid; grid-template-columns: 44px 1fr 300px; min-height: 0; }
+#workspace { display: grid; grid-template-columns: 44px minmax(0, 1fr) var(--side-w, 300px); min-height: 0; }
 #toolbar { background: var(--panel); border-right: 1px solid #141414; display: flex; flex-direction: column; align-items: center; padding: 6px 0; gap: 2px; }
 .tool { width: 34px; height: 34px; display: grid; place-items: center; background: none; border: 0; border-radius: 5px; color: var(--muted); position: relative; }
 .tool:hover { background: var(--hover); color: var(--text); }
@@ -57,7 +57,9 @@ button, input, select, textarea { font: inherit; color: inherit; }
 #hint.show { opacity: 1; }
 
 /* ---- side panels */
-#sidebar { background: var(--panel); border-left: 1px solid #141414; display: grid; grid-template-rows: minmax(160px, 1fr) minmax(200px, 1fr); min-height: 0; }
+#sidebar { background: var(--panel); border-left: 1px solid #141414; display: flex; flex-direction: column; min-height: 0; position: relative; }
+#properties-panel { flex: 1 1 50%; min-height: 110px; }
+#layers-panel { flex: 1 1 0; min-height: 210px; }
 .panel { display: flex; flex-direction: column; min-height: 0; border-bottom: 1px solid #141414; }
 .panel-head { display: flex; align-items: center; height: 28px; padding: 0 10px; background: var(--window); font-weight: 600; color: var(--muted); text-transform: uppercase; font-size: 10.5px; letter-spacing: .06em; border-bottom: 1px solid #141414; }
 .panel-body { flex: 1; overflow: auto; min-height: 0; }
@@ -198,3 +200,11 @@ table.attrs td { padding: 3px 0; word-break: break-word; border-bottom: 1px soli
 .tp-h:hover { color: var(--text); }
 .tp-num { color: var(--faint); text-align: right; font-variant-numeric: tabular-nums; }
 .elem-list { display: grid; gap: 2px; }
+
+/* resizing the side panels */
+.side-grip { position: absolute; left: -4px; top: 0; bottom: 0; width: 8px; cursor: ew-resize; z-index: 5; }
+.side-grip:hover, body.resizing-ew .side-grip { background: linear-gradient(90deg, transparent 3px, var(--accent) 3px, var(--accent) 5px, transparent 5px); }
+.split-grip { flex: none; height: 6px; margin: -3px 0; cursor: ns-resize; position: relative; z-index: 5; }
+.split-grip:hover, body.resizing-ns .split-grip { background: linear-gradient(transparent 2px, var(--accent) 2px, var(--accent) 4px, transparent 4px); }
+body.resizing-ew, body.resizing-ew * { cursor: ew-resize !important; user-select: none; }
+body.resizing-ns, body.resizing-ns * { cursor: ns-resize !important; user-select: none; }

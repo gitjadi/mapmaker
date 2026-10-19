@@ -9,6 +9,7 @@ import { mountTools } from './ui/tools';
 import { el } from './ui/dom';
 import { mountAttributeTable } from './ui/attrtable';
 import { selectByAttributes } from './ui/select';
+import { mountSidebarResize } from './ui/sidebar';
 
 const canvas = document.getElementById('map') as HTMLCanvasElement;
 const ed = new Editor(canvas);
@@ -19,6 +20,7 @@ mountMenus(ed, { table });
 mountTools(ed);
 mountLayers(ed);
 mountProperties(ed);
+mountSidebarResize();
 
 // ---------------------------------------------------------------- title and status
 const titleEl = document.getElementById('doc-title')!;

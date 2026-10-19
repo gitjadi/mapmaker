@@ -5,7 +5,7 @@
 import type { Editor } from '../editor';
 import { BLENDS, Item, Layer, WEB_KINDS, itemTitle } from '../doc';
 import { BASEMAPS } from '../shared/basemaps';
-import { el, select, slider } from './dom';
+import { editingIn, el, select, slider } from './dom';
 import { icon } from './icons';
 import { openMenuAt } from './menus';
 
@@ -186,7 +186,7 @@ export function mountLayers(ed: Editor) {
     }
     list.scrollTop = scroll;
     // don't rebuild the slider while it is being dragged
-    if (!controls.contains(document.activeElement) || controls.dataset.layer !== ed.selLayer) renderControls();
+    if (!editingIn(controls) || controls.dataset.layer !== ed.selLayer) renderControls();
     controls.dataset.layer = ed.selLayer || '';
     renderButtons();
   }

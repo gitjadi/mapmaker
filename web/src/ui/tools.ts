@@ -23,6 +23,14 @@ export function mountTools(ed: Editor) {
         html: icon(t.id), onclick: () => ed.setTool(t.id),
       }));
     });
+    // the page: opens Page view with the page settings (paper, title, legend, design …) in Properties
+    bar.append(el('div', { class: 'tool-sep' }));
+    const onPage = ed.pageMode && ed.selElement === 'page';
+    bar.append(el('button', {
+      class: 'tool' + (onPage ? ' active' : ''), title: 'Page settings – paper, title, legend, scale bar, design (opens Page view)',
+      'aria-label': 'Page settings', html: icon('map'),
+      onclick: () => { if (!ed.pageMode) ed.setPageMode(true); ed.selectElement('page'); },
+    }));
   }
 
   function renderOptions() {
@@ -66,6 +74,8 @@ export function mountTools(ed: Editor) {
     return i;
   }
 
+  ed.on('selection', renderBar);
+  ed.on('page', renderBar);
   ed.on('tool', () => {
     renderBar(); renderOptions();
     const t = TOOLS.find(x => x.id === ed.tool)!;

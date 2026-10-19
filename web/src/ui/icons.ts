@@ -30,6 +30,7 @@ export const ICONS: Record<string, string> = {
   data: S('<circle cx="7" cy="8" r="2"/><circle cx="16" cy="6.5" r="2"/><circle cx="11.5" cy="15" r="2"/><circle cx="18" cy="16.5" r="2"/>'),
   grid: S('<path d="M4 4h16v16H4zM4 12h16M12 4v16"/>'),
   features: S('<rect x="3.5" y="3.5" width="17" height="17" rx="1" stroke-dasharray="3 2.4"/><circle cx="9" cy="10" r="1.6" fill="currentColor"/><circle cx="15" cy="9" r="1.6" fill="currentColor"/><circle cx="12" cy="15" r="1.6" fill="currentColor"/>'),
+  map: S('<path d="M3.5 6.2 8.8 4l6.4 2.4L20.5 4.2v13.6l-5.3 2.2-6.4-2.4-5.3 2.2z"/><path d="M8.8 4v13.8M15.2 6.4V20"/><path d="M11 10.2c1.2-.9 2.3-.6 3 .3" stroke-width="1.3"/>'),
   close: S('<path d="M6 6l12 12M18 6 6 18"/>'),
   page: S('<path d="M6 3.5h8.5L19 8v12.5H6z"/><path d="M14.5 3.5V8H19"/><rect x="8.5" y="11" width="8" height="6" rx=".5"/>'),
   table: S('<rect x="3.5" y="5" width="17" height="14" rx="1.5"/><path d="M3.5 9.5h17M3.5 14h17M9.5 9.5V19"/>'),
