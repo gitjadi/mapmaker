@@ -54,5 +54,42 @@ export function pickFile(accept: string): Promise<File | null> {
   });
 }
 
+export function pickFiles(accept: string): Promise<File[] | null> {
+  return new Promise(res => {
+    const inp = document.createElement('input');
+    inp.type = 'file';
+    inp.accept = accept;
+    inp.multiple = true;
+    inp.onchange = () => res(inp.files ? [...inp.files] : null);
+    inp.addEventListener('cancel', () => res(null));
+    inp.click();
+  });
+}
+
 /** A file-safe name from a map title. */
 export const safeName = (s: string) => (s || 'Untitled map').replace(/[\\/:*?"<>|]+/g, ' ').trim() || 'map';
+
+// Tables never change once made, so each is stored once under its own key.
+const savedTables = new Set<string>();
+
+export async function saveTable(id: string, entries: ZipEntry[]) {
+  if (savedTables.has(id)) return;
+  try { await tx('readwrite', s => s.put(entries, 'table:' + id)); savedTables.add(id); }
+  catch (e) { console.warn('Could not keep the table in the browser', e); }
+}
+
+export async function loadTable(id: string): Promise<ZipEntry[] | null> {
+  try { const r = await tx<ZipEntry[] | undefined>('readonly', s => s.get('table:' + id)); if (r) savedTables.add(id); return r || null; }
+  catch { return null; }
+}
+
+/** Remove kept tables no map uses any more. */
+export async function pruneTables(keep: Set<string>) {
+  try {
+    const keys = await tx<IDBValidKey[]>('readonly', s => s.getAllKeys());
+    for (const k of keys) {
+      const id = String(k).startsWith('table:') ? String(k).slice(6) : null;
+      if (id && !keep.has(id)) { await tx('readwrite', s => s.delete(k)); savedTables.delete(id); }
+    }
+  } catch { /* not important */ }
+}

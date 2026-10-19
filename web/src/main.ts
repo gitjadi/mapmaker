@@ -72,6 +72,7 @@ document.addEventListener('keydown', e => {
       e: () => ed.exportDialog(), d: () => ed.duplicate(), '0': () => ed.zoomToSweden(), '2': () => ed.zoomToSelection(),
     };
     if (e.altKey && k === 'n') { e.preventDefault(); ed.newMap(); return; }
+    if (e.shiftKey && k === 'o') { e.preventDefault(); ed.importData(); return; }
     if (cmds[k] && !(typing(e) && (k === 'z' || k === 'y'))) { e.preventDefault(); cmds[k](); }
     return;
   }
@@ -108,11 +109,16 @@ window.addEventListener('blur', () => ed.setSpace(false));
 // open a .mapmaker file by dropping it on the window
 window.addEventListener('dragover', e => { if (e.dataTransfer?.types.includes('Files')) e.preventDefault(); });
 window.addEventListener('drop', e => {
-  const f = e.dataTransfer?.files?.[0];
-  if (!f) return;
+  const files = [...(e.dataTransfer?.files || [])];
+  if (!files.length) return;
   e.preventDefault();
-  ed.openMap(f);
+  const map = files.find(f => /\.mapmaker$/i.test(f.name));
+  if (map) ed.openMap(map); else ed.importData(files);
 });
+
+// keep the map when the tab is hidden or closed, without waiting for the autosave timer
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') ed.autosaveNow(); });
+window.addEventListener('pagehide', () => { ed.autosaveNow(); });
 
 // ---------------------------------------------------------------- start
 (async () => {

@@ -1,7 +1,8 @@
 // The map document – the same JSON as the desktop app's document.py, so .mapmaker files open in both.
 // A stack of layers (bottom to top), the page, the view; undo is a list of JSON snapshots.
 
-import { AREA_STYLE, LINE_STYLE, TEXT_BASE, TEXT_PRESETS } from './shared/styles';
+import { AREA_STYLE, DARK2, DATA_STYLE, LINE_STYLE, TEXT_BASE, TEXT_PRESETS } from './shared/styles';
+import { Table } from './table';
 import { BASEMAPS } from './shared/basemaps';
 import { SYMBOLS } from './shared/symbols';
 import { readZip, writeZip, ZipEntry } from './zip';
@@ -25,7 +26,7 @@ export const KIND_LABELS: Record<string, string> = {
   data: 'Data', annotations: 'Labels & symbols', grid: 'Coordinate grid',
 };
 /** Layer kinds the browser version can draw so far (others are kept and saved untouched). */
-export const WEB_KINDS = ['color', 'basemap', 'service', 'annotations'];
+export const WEB_KINDS = ['color', 'basemap', 'service', 'annotations', 'data'];
 
 export const newId = () => crypto.getRandomValues(new Uint8Array(5)).reduce((s, b) => s + b.toString(16).padStart(2, '0'), '');
 const clone = <T>(x: T): T => JSON.parse(JSON.stringify(x));
@@ -72,6 +73,18 @@ export function basemapLayer(source = 'esri-light', name?: string) {
 export const serviceLayer = (source: Record<string, any>) => layer('service', source.name || 'Map service', { opacity: 0.85, source });
 export const annotationLayer = (name = 'Labels & symbols') => layer('annotations', name, { items: [] });
 
+let nextColor = 0;
+export function defaultDataStyle(color?: string): Record<string, any> {
+  const c = color || DARK2[nextColor++ % DARK2.length];
+  return { ...clone(DATA_STYLE), color: c, line_color: c, fill: c, stroke: c };
+}
+export function dataLayer(name: string, geometry: string, fields: [string, string][], source: Record<string, any>, table: string) {
+  return layer('data', name, {
+    table, geometry, fields, source, style: defaultDataStyle(),
+    label: { field: null, style: textStyle('feature') }, legend: true, count: 0,
+  });
+}
+
 // ---------------------------------------------------------------- annotation items
 function item(type: string, kw: Record<string, any>): Item {
   return { id: newId(), type, hidden: false, legend: type === 'symbol', legend_text: '', ...kw };
@@ -109,7 +122,9 @@ export class MapDocument {
   layers: Layer[] = [];
   page = defaultPage();
   view: [number, number, number] = [...SWEDEN_VIEW];
-  /** Files from a desktop .mapmaker the browser can't use yet (data tables, images) – kept and saved back. */
+  /** Imported features of data layers, by table id (tables never change once made). */
+  tables = new Map<string, Table>();
+  /** Files from a .mapmaker the browser doesn't use yet (pictures on the page) – kept and saved back. */
   extra: ZipEntry[] = [];
   fileName: string | null = null;
   dirty = false;
@@ -257,9 +272,39 @@ export class MapDocument {
     };
   }
 
+  addTable(t: Table): string { const id = newId(); this.tables.set(id, t); return id; }
+  table(L: Layer | null | undefined): Table | null { return L?.table ? this.tables.get(L.table) || null : null; }
+
+  /** The .npy files of the tables in use (and nothing for tables no layer shows any more). */
+  tableEntries(): ZipEntry[] {
+    const used = new Set(this.layers.filter(L => L.kind === 'data').map(L => L.table));
+    const out: ZipEntry[] = [];
+    for (const [id, t] of this.tables) if (used.has(id)) out.push(...t.toEntries(`data/${id}`));
+    return out;
+  }
+
   async toBlob(): Promise<Blob> {
     const json = new TextEncoder().encode(JSON.stringify(this.body(), null, 1));
-    return writeZip([{ name: 'document.json', data: json }, ...this.extra]);
+    return writeZip([{ name: 'document.json', data: json }, ...this.tableEntries(), ...this.extra]);
+  }
+
+  /** Split loaded zip entries into tables (data/<id>/...) and the rest. */
+  takeTables(entries: ZipEntry[]) {
+    const groups = new Map<string, Map<string, Uint8Array>>();
+    const rest: ZipEntry[] = [];
+    for (const e of entries) {
+      const m = /^data\/([^/]+)\/(.+)$/.exec(e.name);
+      if (m) { if (!groups.has(m[1])) groups.set(m[1], new Map()); groups.get(m[1])!.set(m[2], e.data); }
+      else rest.push(e);
+    }
+    for (const [id, files] of groups) {
+      try { this.tables.set(id, Table.fromEntries(n => files.get(n))); }
+      catch (err) {
+        console.warn('Could not read table', id, err);
+        for (const [n, d] of files) rest.push({ name: `data/${id}/${n}`, data: d });     // keep it as it was
+      }
+    }
+    this.extra = rest;
   }
 
   static fromBody(body: any, extra: ZipEntry[] = []): MapDocument {
@@ -269,7 +314,7 @@ export class MapDocument {
     d.layers = body.layers || [];
     d.page = mergePage(body.page);
     if (Array.isArray(body.view) && body.view.length === 3) d.view = body.view;
-    d.extra = extra;
+    d.takeTables(extra);
     return d;
   }
 

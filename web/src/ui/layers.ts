@@ -66,7 +66,7 @@ export function mountLayers(ed: Editor) {
 
   function layerRow(L: Layer) {
     const sel = ed.selLayer === L.id && !ed.selItem;
-    const supported = WEB_KINDS.includes(L.kind);
+    const supported = WEB_KINDS.includes(L.kind) && (L.kind !== 'data' || !!ed.doc.table(L));
     const r = el('div', {
       class: `layer${sel ? ' sel' : ''}${L.visible ? '' : ' hidden-layer'}${supported ? '' : ' unsupported'}`,
       draggable: renaming !== L.id, 'data-id': L.id,
@@ -96,7 +96,8 @@ export function mountLayers(ed: Editor) {
     } else {
       name.textContent = L.name;
     }
-    const count = L.kind === 'annotations' ? el('span', { class: 'badge' }, String((L.items || []).length)) : null;
+    const count = L.kind === 'annotations' ? el('span', { class: 'badge' }, String((L.items || []).length))
+      : L.kind === 'data' ? el('span', { class: 'badge' }, (ed.doc.table(L)?.n ?? L.count ?? 0).toLocaleString('sv-SE')) : null;
     r.append(eye, lock, caret, el('span', { class: 'kind', html: icon(kindIcon) }), name, count || '');
     r.onclick = () => ed.select(L.id);
     r.ondblclick = () => { renaming = L.id; render(); };
@@ -197,6 +198,8 @@ export function mountLayers(ed: Editor) {
 
 export function addLayerMenu(ed: Editor) {
   return [
+    { label: 'Data from a file…', key: 'Ctrl+Shift+O', action: () => ed.importData() },
+    { sep: true },
     { label: 'Background maps' },
     ...BASEMAPS.map(b => ({ label: b.name, action: () => ed.addBasemap(b.id) })),
     { sep: true },

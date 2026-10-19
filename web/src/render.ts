@@ -6,6 +6,7 @@ import { MapDocument, Item, Layer } from './doc';
 import { View, TILE, lonlatToMerc } from './geo';
 import { TileCache, TileSourceDef, tileUrl } from './tiles';
 import { BASEMAPS } from './shared/basemaps';
+import { drawDataLayer } from './datadraw';
 import { SYMBOLS } from './shared/symbols';
 
 export const PT = 96 / 72;                 // reference pixels per point
@@ -44,7 +45,14 @@ export interface RenderOptions {
   skip?: Set<string>;
   /** layers kinds this renderer can't draw yet are shown as nothing; collect their names here */
   unsupported?: Set<string>;
+  /** screen only: finished pictures of big data layers, reused (moved and scaled) while the view changes */
+  dataCache?: Map<string, DataCacheEntry>;
+  /** the view is being dragged or zoomed: reuse cached data pictures instead of drawing afresh */
+  moving?: boolean;
 }
+
+export interface DataCacheEntry { key: string; view: View; canvas: HTMLCanvasElement; dpr: number }
+const BIG_LAYER = 3000;
 
 // ---------------------------------------------------------------- tiles
 export function sourceFor(L: Layer): (Partial<TileSourceDef> & { urls: string[] }) | null {
@@ -111,7 +119,7 @@ export function symbolSvg(key: string, color: string, halo: string | null = '#ff
   return out + `<g fill="${color}">${s.body}</g></svg>`;
 }
 
-function symbolImage(key: string, color: string, halo: string | null): HTMLImageElement | null {
+export function symbolImage(key: string, color: string, halo: string | null): HTMLImageElement | null {
   const ck = `${key}|${color}|${halo}`;
   if (symbolImages.has(ck)) return symbolImages.get(ck)!;
   symbolImages.set(ck, null);
@@ -308,6 +316,36 @@ export function renderMap(ctx: CanvasRenderingContext2D, view: View, doc: MapDoc
         const labels = L.kind === 'basemap' && L.labels && (src as TileSourceDef).labels?.length
           ? { ...src, urls: (src as TileSourceDef).labels } : null;
         if (labels) drawTiles(c, view, dpr, labels, cache, urlsUsed);
+      }
+    } else if (L.kind === 'data') {
+      const t = doc.table(L);
+      if (!t) { opts.unsupported?.add(L.name); continue; }
+      const cacheable = opts.dataCache && t.n > BIG_LAYER;
+      if (!cacheable) {
+        c.setTransform(dpr, 0, 0, dpr, 0, 0);
+        drawDataLayer(c, view, L, t, k, dpr);
+      } else {
+        const styleKey = JSON.stringify([L.table, L.style, L.label]);
+        const viewKey = [view.cx, view.cy, view.zoom, view.width, view.height, dpr].join(',');
+        let e = opts.dataCache!.get(L.id);
+        const fresh = e && e.key === styleKey + '|' + viewKey;
+        if (!fresh && !(opts.moving && e && e.key.startsWith(styleKey + '|'))) {
+          const cv = e?.canvas || document.createElement('canvas');
+          cv.width = W; cv.height = H;
+          const x = cv.getContext('2d')!;
+          x.setTransform(dpr, 0, 0, dpr, 0, 0);
+          x.clearRect(0, 0, W, H);
+          drawDataLayer(x, view, L, t, k, dpr);
+          e = { key: styleKey + '|' + viewKey, view: view.clone(), canvas: cv, dpr };
+          opts.dataCache!.set(L.id, e);
+        }
+        if (e) {
+          // where the cached picture lands in the current view
+          const s = view.world / e.view.world;
+          const dx = (view.width / 2 + (e.view.cx - view.cx) * view.world - e.view.width / 2 * s) * dpr;
+          const dy = (view.height / 2 + (e.view.cy - view.cy) * view.world - e.view.height / 2 * s) * dpr;
+          c.drawImage(e.canvas, dx, dy, e.canvas.width * s * dpr / e.dpr, e.canvas.height * s * dpr / e.dpr);
+        }
       }
     } else if (L.kind === 'annotations') {
       c.setTransform(dpr, 0, 0, dpr, 0, 0);

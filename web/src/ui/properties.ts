@@ -4,7 +4,9 @@
 import type { Editor } from '../editor';
 import { Item, Layer, KIND_LABELS, WEB_KINDS, itemTitle, textStyle } from '../doc';
 import { BASEMAPS } from '../shared/basemaps';
-import { DASHES, FONTS, SWATCHES, TEXT_PRESETS } from '../shared/styles';
+import { DASHES, FONTS, QUALITATIVE, SEQUENTIAL, SWATCHES, TEXT_PRESETS } from '../shared/styles';
+import { AREA, LINE, POINT, Table, colCounts, colText, makeCategories, makeGraduated, numericValues } from '../table';
+const colCountsN = (t: Table, f: string) => colCounts(t.cols[f], 61).length;
 import { SYMBOLS, SYMBOL_CATEGORIES } from '../shared/symbols';
 import { symbolSvg } from '../render';
 import { check, colorInput, el, row, select, slider } from './dom';
@@ -12,6 +14,7 @@ import { check, colorInput, el, row, select, slider } from './dom';
 export function mountProperties(ed: Editor) {
   const box = document.getElementById('properties')!;
   let shownFor = '';
+  const key = () => `${ed.selLayer}|${ed.selItem}|${ed.selFeature?.index ?? ''}`;
 
   /** A change to the document, merged into one undo step while it keeps coming (typing, sliders). */
   const change = (label: string, key: string, f: () => void) => {
@@ -21,11 +24,12 @@ export function mountProperties(ed: Editor) {
   };
 
   function render() {
-    shownFor = `${ed.selLayer}|${ed.selItem}`;
+    shownFor = key();
     box.innerHTML = '';
     const it = ed.selectedItem();
     const L = ed.selectedLayer();
     if (it && L) itemProps(L, it);
+    else if (L && ed.selFeature?.layerId === L.id && ed.doc.table(L)) featureProps(L, ed.doc.table(L)!, ed.selFeature.index);
     else if (L) layerProps(L);
     else mapProps();
   }
@@ -78,11 +82,122 @@ export function mountProperties(ed: Editor) {
       att.oninput = () => change('Credits', 'att:' + L.id, () => { s.attribution = att.value; });
       box.append(row('Credits', att));
     }
+    if (L.kind === 'data') {
+      const t = ed.doc.table(L);
+      if (!t) { box.append(el('div', { class: 'note' }, 'The features of this layer couldn’t be read.')); return; }
+      dataProps(L, t);
+    }
     if (L.kind === 'annotations') {
       const n = (L.items || []).length;
       box.append(el('div', { class: 'prop-sub' }, n ? `${n} item${n === 1 ? '' : 's'} – listed under the layer in the Layers panel.` : 'Empty – use the Text, Symbol, Line and Area tools to add to it.'));
       if (n) box.append(el('div', { class: 'btn-row' }, el('button', { class: 'btn', onclick: () => ed.zoomToSelection() }, 'Zoom to layer')));
     }
+  }
+
+  // ---------------------------------------------------------------- data layers
+  function dataProps(L: Layer, t: Table) {
+    const st = L.style ||= {};
+    const kinds = new Set<number>();
+    for (let i = 0; i < t.n && kinds.size < 3; i++) kinds.add(t.kind[i]);
+    const kindText = [kinds.has(POINT) && 'points', kinds.has(LINE) && 'lines', kinds.has(AREA) && 'areas'].filter(Boolean).join(', ');
+    box.append(el('div', { class: 'prop-sub' }, `${t.n.toLocaleString('sv-SE')} features (${kindText}) · ${t.fields.length} fields`));
+    const cls = st.classify && st.classify.mode !== 'single' ? st.classify : null;
+    const mode = cls ? cls.mode : 'single';
+    const fieldOpts: [string, string][] = t.fields.map(f => [f, f]);
+    const numFields: [string, string][] = t.fields.filter(f => {
+      const v = numericValues(t, f); for (let i = 0; i < Math.min(v.length, 2000); i++) if (Number.isFinite(v[i])) return true; return false;
+    }).map(f => [f, f]);
+
+    box.append(el('div', { class: 'prop-group' }, 'Colour'));
+    box.append(row('Colour by', select([['single', 'One colour'], ['categories', 'Categories (one per value)'], ['graduated', 'Graduated (number classes)']], mode, v => {
+      if (v === 'single') return change('One colour', 'cls', () => { delete st.classify; render(); });
+      // a sensible first field: for categories one with few distinct values (a type, not an id or a coordinate)
+      const catField = t.fields.find(fl => { const c = t.cols[fl]; return c.kind === 'cat' && c.cats.length >= 2 && c.cats.length <= 60; })
+        || t.fields.find(fl => colCountsN(t, fl) <= 60) || fieldOpts[0]?.[0];
+      const f = v === 'graduated' ? (numFields.find(([n]) => !/^(lat|lon|lng|x|y|n|e|id|fid|objectid)$/i.test(n)) || numFields[0])?.[0] : (st.classify?.field || catField);
+      if (!f) return render();
+      try { change('Colour by', 'cls', () => { st.classify = v === 'graduated' ? makeGraduated(t, f) : makeCategories(t, f); render(); }); }
+      catch (e: any) { render(); box.prepend(el('div', { class: 'note' }, e.message)); }
+    })));
+    if (cls) {
+      const f = select(cls.mode === 'graduated' ? numFields : fieldOpts, cls.field, v => change('Field', 'cls', () => {
+        st.classify = cls.mode === 'graduated' ? makeGraduated(t, v, cls.classes.length, cls.method, cls.scheme) : makeCategories(t, v, cls.scheme); render();
+      }));
+      box.append(row('Field', f));
+      const schemes = Object.keys(cls.mode === 'graduated' ? SEQUENTIAL : QUALITATIVE).map(k => [k, k] as [string, string]);
+      box.append(row('Colours', select(schemes, cls.scheme, v => change('Colours', 'cls', () => {
+        st.classify = cls.mode === 'graduated' ? makeGraduated(t, cls.field, cls.classes.length, cls.method, v) : makeCategories(t, cls.field, v); render();
+      }))));
+      if (cls.mode === 'graduated') {
+        box.append(row('Classes', select([2, 3, 4, 5, 6, 7, 8, 9].map(n => [String(n), String(n)]), String(cls.classes.length), v => change('Classes', 'cls', () => {
+          st.classify = makeGraduated(t, cls.field, Number(v), cls.method, cls.scheme); render();
+        }))));
+        box.append(row('Breaks', select([['quantile', 'Equal counts (quantiles)'], ['equal', 'Equal steps']], cls.method || 'quantile', v => change('Breaks', 'cls', () => {
+          st.classify = makeGraduated(t, cls.field, cls.classes.length, v, cls.scheme); render();
+        }))));
+      }
+      const list = el('div', { class: 'class-list' });
+      const classRow = (c: any, label: string) => {
+        const on = el('input', { type: 'checkbox', checked: c.show !== false, title: 'Show' });
+        on.onchange = () => change('Show class', 'cls-show', () => { c.show = on.checked; });
+        const col = el('input', { type: 'color', value: c.color });
+        col.oninput = () => change('Class colour', 'cls-col', () => { c.color = col.value; });
+        const name = el('input', { type: 'text', value: c.label ?? label });
+        name.oninput = () => change('Legend text', 'cls-lab', () => { c.label = name.value; });
+        return el('div', { class: 'class-row' }, on, col, name, el('span', { class: 'badge' }, (c.count ?? '').toLocaleString('sv-SE')));
+      };
+      for (const c of cls.classes) list.append(classRow(c, String(c.value ?? '')));
+      if (cls.mode === 'categories' && (cls.other?.count || 0) > 0) list.append(classRow(cls.other, 'Other'));
+      box.append(list);
+    }
+
+    if (kinds.has(POINT)) {
+      box.append(el('div', { class: 'prop-group' }, 'Points'));
+      const markers: [string, string][] = [['circle', 'Circle'], ...Object.entries(SYMBOLS).filter(([k]) => k !== 'circle').map(([k, v]) => [k, v.label] as [string, string])];
+      box.append(row('Marker', select(markers, st.marker || 'circle', v => change('Marker', 'mk:' + L.id, () => { st.marker = v; }))));
+      if (!cls) colorRow('Colour', st.color, v => change('Colour', 'pc:' + L.id, () => { st.color = v; }));
+      box.append(row('Size', slider(st.size ?? 7, 1, 40, 0.5, v => change('Size', 'ps:' + L.id, () => { st.size = v; }))));
+      box.append(row('Outline', colorInput(st.outline || '#ffffff', v => change('Outline', 'po:' + L.id, () => { st.outline = v; }))));
+      box.append(row('Outline width', slider(st.outline_width ?? 1, 0, 4, 0.1, v => change('Outline width', 'pow:' + L.id, () => { st.outline_width = v; }), v => v.toFixed(1))));
+    }
+    if (kinds.has(LINE)) {
+      box.append(el('div', { class: 'prop-group' }, 'Lines'));
+      if (!cls) colorRow('Colour', st.line_color, v => change('Line colour', 'lc:' + L.id, () => { st.line_color = v; }));
+      box.append(row('Width', slider(st.line_width ?? 1.6, 0.2, 12, 0.1, v => change('Line width', 'lw:' + L.id, () => { st.line_width = v; }), v => v.toFixed(1))));
+      box.append(row('Dashes', select(Object.entries(DASHES), st.dash || 'solid', v => change('Dashes', 'ld:' + L.id, () => { st.dash = v; }))));
+    }
+    if (kinds.has(AREA)) {
+      box.append(el('div', { class: 'prop-group' }, 'Areas'));
+      if (!cls) colorRow('Fill', st.fill, v => change('Fill', 'af:' + L.id, () => { st.fill = v; }));
+      box.append(row('Fill opacity %', slider(Math.round((st.fill_opacity ?? 0.25) * 100), 0, 100, 1, v => change('Fill opacity', 'afo:' + L.id, () => { st.fill_opacity = v / 100; }))));
+      if (!cls) colorRow('Outline', st.stroke, v => change('Outline', 'as:' + L.id, () => { st.stroke = v; }));
+      box.append(row('Outline width', slider(st.stroke_width ?? 1.2, 0, 8, 0.1, v => change('Outline width', 'asw:' + L.id, () => { st.stroke_width = v; }), v => v.toFixed(1))));
+    }
+
+    const lab = L.label ||= { field: null, style: textStyle('feature') };
+    box.append(el('div', { class: 'prop-group' }, 'Labels'));
+    box.append(row('Label with', select([['', 'No labels'], ...fieldOpts], lab.field || '', v => change('Labels', 'lab:' + L.id, () => { lab.field = v || null; render(); }))));
+    if (lab.field) textStyleRows(lab.style ||= textStyle('feature'), L.id + ':lab', true);
+    box.append(el('div', { class: 'prop-group' }, 'Legend'),
+      row('', el('div', { class: 'checks' }, check('Show in the legend', L.legend !== false, v => change('Legend', 'leg:' + L.id, () => { L.legend = v; })))));
+    box.append(el('div', { class: 'btn-row' }, el('button', { class: 'btn', onclick: () => ed.zoomToSelection() }, 'Zoom to layer')));
+  }
+
+  function featureProps(L: Layer, t: Table, i: number) {
+    const kind = ['Point', 'Line', 'Area'][t.kind[i]] || 'Feature';
+    const nameField = t.fields.find(f => /^(name|namn|title|benamning|benämning)$/i.test(f));
+    const title = nameField ? colText(t.cols[nameField], i) : '';
+    box.append(el('div', { class: 'prop-title' }, title || `${kind} ${i + 1}`), el('div', { class: 'prop-sub' }, `${kind} in “${L.name}” – feature ${i + 1} of ${t.n.toLocaleString('sv-SE')}`));
+    const tbl = el('table', { class: 'attrs' });
+    for (const f of t.fields) {
+      const v = colText(t.cols[f], i);
+      tbl.append(el('tr', {}, el('th', {}, f), el('td', {}, v || '—')));
+    }
+    if (Number.isFinite(t.x[i])) tbl.append(el('tr', {}, el('th', {}, 'Position'), el('td', {}, `${t.y[i].toFixed(5)}° N, ${t.x[i].toFixed(5)}° E`)));
+    box.append(tbl);
+    box.append(el('div', { class: 'btn-row' },
+      el('button', { class: 'btn', onclick: () => ed.zoomToSelection() }, 'Zoom to'),
+      el('button', { class: 'btn', onclick: () => ed.select(L.id) }, 'Layer style')));
   }
 
   // ---------------------------------------------------------------- items
@@ -182,7 +297,7 @@ export function mountProperties(ed: Editor) {
   ed.on('selection', render);
   ed.on('change', () => {
     // rebuild only when it isn't being edited (keeps focus while typing and dragging sliders)
-    if (box.contains(document.activeElement) && shownFor === `${ed.selLayer}|${ed.selItem}`) {
+    if (box.contains(document.activeElement) && shownFor === key()) {
       const t = box.querySelector('.prop-title');
       const it = ed.selectedItem(), L = ed.selectedLayer();
       if (t) t.textContent = it ? itemTitle(it) : L ? L.name : 'Map';

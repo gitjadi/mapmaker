@@ -442,3 +442,204 @@ export const AREA_STYLE: Record<string, any> = {
  "dash": "solid"
 };
 
+export const DATA_STYLE: Record<string, any> = {
+ "marker": "circle",
+ "size": 7.0,
+ "color": "#000000",
+ "outline": "#ffffff",
+ "outline_width": 1.0,
+ "line_color": "#000000",
+ "line_width": 1.6,
+ "dash": "solid",
+ "fill": "#000000",
+ "fill_opacity": 0.25,
+ "stroke": "#000000",
+ "stroke_width": 1.2,
+ "stroke_dash": "solid"
+};
+
+export const DARK2: string[] = [
+ "#1b9e77",
+ "#d95f02",
+ "#7570b3",
+ "#e7298a",
+ "#66a61e",
+ "#e6ab02",
+ "#a6761d",
+ "#666666"
+];
+
+export const QUALITATIVE: Record<string, string[]> = {
+ "Set2": [
+  "#66c2a5",
+  "#fc8d62",
+  "#8da0cb",
+  "#e78ac3",
+  "#a6d854",
+  "#ffd92f",
+  "#e5c494",
+  "#b3b3b3"
+ ],
+ "Dark2": [
+  "#1b9e77",
+  "#d95f02",
+  "#7570b3",
+  "#e7298a",
+  "#66a61e",
+  "#e6ab02",
+  "#a6761d",
+  "#666666"
+ ],
+ "Set1": [
+  "#e41a1c",
+  "#377eb8",
+  "#4daf4a",
+  "#984ea3",
+  "#ff7f00",
+  "#ffff33",
+  "#a65628",
+  "#f781bf",
+  "#999999"
+ ],
+ "Paired": [
+  "#a6cee3",
+  "#1f78b4",
+  "#b2df8a",
+  "#33a02c",
+  "#fb9a99",
+  "#e31a1c",
+  "#fdbf6f",
+  "#ff7f00",
+  "#cab2d6",
+  "#6a3d9a",
+  "#ffff99",
+  "#b15928"
+ ],
+ "Set3": [
+  "#8dd3c7",
+  "#ffffb3",
+  "#bebada",
+  "#fb8072",
+  "#80b1d3",
+  "#fdb462",
+  "#b3de69",
+  "#fccde5",
+  "#d9d9d9",
+  "#bc80bd",
+  "#ccebc5",
+  "#ffed6f"
+ ],
+ "Earth": [
+  "#8c510a",
+  "#bf812d",
+  "#dfc27d",
+  "#80cdc1",
+  "#35978f",
+  "#01665e",
+  "#543005",
+  "#003c30"
+ ]
+};
+
+export const SEQUENTIAL: Record<string, string[]> = {
+ "Blues": [
+  "#f7fbff",
+  "#deebf7",
+  "#c6dbef",
+  "#9ecae1",
+  "#6baed6",
+  "#4292c6",
+  "#2171b5",
+  "#08519c",
+  "#08306b"
+ ],
+ "Greens": [
+  "#f7fcf5",
+  "#e5f5e0",
+  "#c7e9c0",
+  "#a1d99b",
+  "#74c476",
+  "#41ab5d",
+  "#238b45",
+  "#006d2c",
+  "#00441b"
+ ],
+ "Reds": [
+  "#fff5f0",
+  "#fee0d2",
+  "#fcbba1",
+  "#fc9272",
+  "#fb6a4a",
+  "#ef3b2c",
+  "#cb181d",
+  "#a50f15",
+  "#67000d"
+ ],
+ "Purples": [
+  "#fcfbfd",
+  "#efedf5",
+  "#dadaeb",
+  "#bcbddc",
+  "#9e9ac8",
+  "#807dba",
+  "#6a51a3",
+  "#54278f",
+  "#3f007d"
+ ],
+ "Oranges": [
+  "#fff5eb",
+  "#fee6ce",
+  "#fdd0a2",
+  "#fdae6b",
+  "#fd8d3c",
+  "#f16913",
+  "#d94801",
+  "#a63603",
+  "#7f2704"
+ ],
+ "YlOrRd": [
+  "#ffffcc",
+  "#ffeda0",
+  "#fed976",
+  "#feb24c",
+  "#fd8d3c",
+  "#fc4e2a",
+  "#e31a1c",
+  "#bd0026",
+  "#800026"
+ ],
+ "YlOrBr": [
+  "#ffffe5",
+  "#fff7bc",
+  "#fee391",
+  "#fec44f",
+  "#fe9929",
+  "#ec7014",
+  "#cc4c02",
+  "#993404",
+  "#662506"
+ ],
+ "YlGnBu": [
+  "#ffffd9",
+  "#edf8b1",
+  "#c7e9b4",
+  "#7fcdbb",
+  "#41b6c4",
+  "#1d91c0",
+  "#225ea8",
+  "#253494",
+  "#081d58"
+ ],
+ "Greys": [
+  "#ffffff",
+  "#f0f0f0",
+  "#d9d9d9",
+  "#bdbdbd",
+  "#969696",
+  "#737373",
+  "#525252",
+  "#252525",
+  "#000000"
+ ]
+};
+

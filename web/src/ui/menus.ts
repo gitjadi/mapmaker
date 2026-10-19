@@ -56,6 +56,8 @@ export function mountMenus(ed: Editor) {
       { label: 'Open…', key: 'Ctrl+O', action: () => ed.openMap() },
       { label: 'Save', key: 'Ctrl+S', action: () => ed.saveMap() },
       { sep: true },
+      { label: 'Add data from a file…', key: 'Ctrl+Shift+O', action: () => ed.importData() },
+      { sep: true },
       { label: 'Export map view as picture…', key: 'Ctrl+E', action: () => ed.exportDialog() },
     ]],
     ['Edit', () => [

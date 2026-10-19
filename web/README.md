@@ -27,27 +27,37 @@ and map-service (XYZ/WMS) layers, Layers panel (show/hide, lock, rename, drag to
 blend mode), annotation layers with Text, Symbol, Line and Area tools, Properties panel, undo/redo,
 autosave in the browser, Open/Save `.mapmaker`, PNG/JPEG export of the map view.
 
-**Next:** data import (GeoJSON, CSV, KML, GPX, GeoPackage, shapefile) and data styling → page layout
+**Phase 2 (started):** data layers – desktop maps' data shows and saves back; import GeoJSON,
+CSV (lat/lon or SWEREF 99 TM / RT 90 N/E), KML/KMZ, GPX and shapefiles (a .zip, or .shp + .dbf + .prj
+picked together) via *Layer → Data from a file…* or by dropping files on the map; point, line and area
+styles, colour by categories or graduated classes, labels from a field, click a feature to see its
+attributes. Large layers (hundreds of thousands of points) are thinned and cached while panning.
+Not yet: GeoPackage (needs SQLite in the browser), selection by attributes, attribute table, heat maps.
+
+**Next:** page layout
 (title, legend, scale bar, north arrow, sources), themes and PDF export → laser terrain, grid, ArcGIS
 downloads.
 
-## Publishing on your own domain
+## Publishing on your own domain (jadi.zip)
 
-**GitHub Pages (free):** the workflow `.github/workflows/pages.yml` builds and publishes `web/` on
-every push to `main`.
+The site is published with GitHub Pages straight from the repository – no build server needed:
 
-1. Move `web/deploy/pages.yml` to `.github/workflows/pages.yml` (create the folders).
-   On GitHub: repository **Settings → Pages → Source: GitHub Actions**.
-2. Push. The site appears at `https://<user>.github.io/<repo>/`.
-3. Own domain: create `web/public/CNAME` containing just the domain (e.g. `maps.example.se`), push,
-   and enter the same domain under **Settings → Pages → Custom domain** (tick *Enforce HTTPS*).
-4. At your DNS provider:
-   - a subdomain (`maps.example.se`): a **CNAME** record `maps` → `<user>.github.io`
-   - the bare domain (`example.se`): **A** records to `185.199.108.153`, `185.199.109.153`,
-     `185.199.110.153`, `185.199.111.153`
+1. `cd web`, `npm install` (once), then **`npm run site`**. This writes the finished app to the
+   repository root: `index.html`, `assets/`, `icon.png` and `.nojekyll` (which stops GitHub from
+   turning `README.md` into the home page).
+2. Commit and push (GitHub Desktop: commit to `main`, *Push origin*). A minute later the app is
+   live at https://jadi.zip.
 
-**Any other web host:** run `npm run build` and upload the contents of `web/dist/` – the paths are
-relative, so it also works in a sub-folder such as `example.se/mapmaker/`.
+GitHub Pages settings for this: **Settings → Pages → Build and deployment → Source: Deploy from a
+branch**, branch **main**, folder **/ (root)**, custom domain **jadi.zip** (the `CNAME` file at the
+root keeps it). Run `npm run site` again whenever the code in `web/` changes.
+
+*Alternative:* `web/deploy/pages.yml` is a GitHub Actions workflow that builds on every push
+instead. To use it, move it to `.github/workflows/pages.yml` and set the Pages source to *GitHub
+Actions*; then you don't need to commit the built files.
+
+**Any other web host:** `npm run build` and upload the contents of `web/dist/` – the paths are
+relative, so it also works in a sub-folder.
 
 ## Notes for a public site
 

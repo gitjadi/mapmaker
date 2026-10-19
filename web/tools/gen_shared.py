@@ -57,6 +57,10 @@ def main():
     out += ts("THEMES", st.THEMES, "Record<string, any>")
     out += ts("LINE_STYLE", st.default_line_style(), "Record<string, any>")
     out += ts("AREA_STYLE", st.default_area_style(), "Record<string, any>")
+    out += ts("DATA_STYLE", st.default_data_style("point", "#000000"), "Record<string, any>")
+    out += ts("DARK2", st.DARK2, "string[]")
+    out += ts("QUALITATIVE", st.QUALITATIVE, "Record<string, string[]>")
+    out += ts("SEQUENTIAL", st.SEQUENTIAL, "Record<string, string[]>")
     (OUT / "styles.ts").write_text(out, encoding="utf-8")
 
     # tiles.py imports numpy/PIL; read the list without importing the heavy parts if they are missing

@@ -9,7 +9,12 @@ import { View, lonlatToMerc, mercToLonlat, scaleDenominator } from './geo';
 import { TileCache } from './tiles';
 import { Hit, distToPolyline, onSymbolLoaded, pointInPoly, renderMap, sourceFor, symbolsReady } from './render';
 import { BASEMAPS } from './shared/basemaps';
-import { downloadBlob, loadAutosave, pickFile, safeName, saveAutosave } from './storage';
+import { downloadBlob, loadAutosave, loadTable, pickFile, pickFiles, pruneTables, safeName, saveAutosave, saveTable } from './storage';
+import { DATA_ACCEPT, readDataFiles } from './importers';
+import { DataCacheEntry } from './render';
+import { featureAt, highlightFeature } from './datadraw';
+import { dataLayer } from './doc';
+import { Table } from './table';
 import { confirmDialog, dialog, el, message, row, select } from './ui/dom';
 
 export type Tool = 'select' | 'pan' | 'text' | 'symbol' | 'line' | 'area';
@@ -35,6 +40,11 @@ export class Editor {
   tool: Tool = 'select';
   selLayer: string | null = null;
   selItem: string | null = null;
+  /** a feature of a data layer picked with the select tool (shown in Properties) */
+  selFeature: { layerId: string; index: number } | null = null;
+  private dataCache = new Map<string, DataCacheEntry>();
+  private moving = false;
+  private movingTimer = 0;
   opts: ToolOptions = {
     preset: 'place', symbol: 'pin', symbolColor: '#b03a2e', symbolSize: 22, badge: false,
     lineColor: '#b03a2e', lineWidth: 2.5, lineDash: 'solid', areaFill: '#b03a2e',
@@ -85,14 +95,16 @@ export class Editor {
     this.bindDoc();
     this.view.cx = d.view[0]; this.view.cy = d.view[1]; this.view.zoom = d.view[2];
     this.selItem = null;
+    this.selFeature = null;
+    this.dataCache.clear();
     this.selLayer = d.annotationLayers().slice(-1)[0]?.id || d.layers[d.layers.length - 1]?.id || null;
     this.drawing = null;
     this.redraw();
     this.emit('change'); this.emit('selection'); this.emit('view');
-    const unsupported = d.layers.filter(L => !WEB_KINDS.includes(L.kind));
+    const unsupported = d.layers.filter(L => !WEB_KINDS.includes(L.kind) || (L.kind === 'data' && !d.table(L)));
     if (warn && unsupported.length) {
       message('Some layers aren’t shown yet',
-        `The browser version can’t draw ${unsupported.map(L => `“${L.name}”`).join(', ')} yet (data, terrain and grid layers come in later versions). ` +
+        `The browser version can’t draw ${unsupported.map(L => `“${L.name}”`).join(', ')} yet (terrain and grid layers come in a later version). ` +
         'They stay in the map and are saved back with it, so nothing is lost.');
     }
   }
@@ -101,6 +113,7 @@ export class Editor {
   select(layerId: string | null, itemId: string | null = null) {
     this.selLayer = layerId;
     this.selItem = itemId;
+    this.selFeature = null;
     this.redraw();
     this.emit('selection');
   }
@@ -155,7 +168,7 @@ export class Editor {
     ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
     this.hits = [];
     const unsupported = new Set<string>();
-    renderMap(ctx, this.view, this.doc, this.tiles, { dpr, hits: this.hits, unsupported });
+    renderMap(ctx, this.view, this.doc, this.tiles, { dpr, hits: this.hits, unsupported, dataCache: this.dataCache, moving: this.moving });
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     this.paintOverlay(ctx);
     const u = [...unsupported].join(', ');
@@ -165,7 +178,18 @@ export class Editor {
 
   unsupportedNames() { return this.lastUnsupported; }
 
+  /** The view is changing (drag, wheel): big data layers reuse their last picture until it settles. */
+  private markMoving() {
+    this.moving = true;
+    clearTimeout(this.movingTimer);
+    this.movingTimer = window.setTimeout(() => { this.moving = false; this.redraw(); }, 160);
+  }
+
   private paintOverlay(ctx: CanvasRenderingContext2D) {
+    if (this.selFeature) {
+      const L = this.doc.layer(this.selFeature.layerId), t = this.doc.table(L);
+      if (L && t && L.visible && this.selFeature.index < t.n) highlightFeature(ctx, this.view, L, t, this.selFeature.index);
+    }
     const sel = this.selItem ? this.hits.find(h => h.itemId === this.selItem) : null;
     ctx.lineWidth = 1.2;
     ctx.strokeStyle = '#2f8cff';
@@ -228,6 +252,7 @@ export class Editor {
   saveView() { this.doc.view = [this.view.cx, this.view.cy, this.view.zoom]; this.scheduleAutosave(); }
 
   zoomBy(dz: number, px = this.view.width / 2, py = this.view.height / 2) {
+    this.markMoving();
     this.view.zoomAround(px, py, dz);
     this.saveView();
     this.redraw();
@@ -244,6 +269,18 @@ export class Editor {
   zoomToSelection() {
     const it = this.selectedItem();
     const L = this.selectedLayer();
+    const t = !it ? this.doc.table(L) : null;
+    if (t) {
+      if (this.selFeature) {
+        const i = this.selFeature.index;
+        const rings = t.rings(i);
+        const pts: number[][] = rings.length ? rings.flatMap(r => Array.from({ length: r.length / 2 }, (_, j) => [r[j * 2], r[j * 2 + 1]])) : [[t.x[i], t.y[i]]];
+        return this.zoomToLonlats(pts, rings.length ? 0.8 : 0, 15);
+      }
+      const b = t.bbox();
+      if (b) this.zoomToLonlats([[b[0], b[1]], [b[2], b[3]]]);
+      return;
+    }
     const items: Item[] = it ? [it] : (L?.items || []);
     const pts: number[][] = [];
     for (const x of items) { if ('lon' in x) pts.push([x.lon, x.lat]); pts.push(...(x.coords || [])); }
@@ -256,6 +293,36 @@ export class Editor {
     const z = Math.log2(Math.min(this.view.width * 0.8 / (Math.max(w, 1e-7) * 256), this.view.height * 0.8 / (Math.max(h, 1e-7) * 256)));
     this.view.zoom = Math.max(2, Math.min(17, z));
     this.saveView(); this.redraw(); this.emit('view');
+  }
+
+  zoomToLonlats(pts: number[][], fill = 0.8, maxZoom = 17) {
+    const m = pts.map(p => lonlatToMerc(p[0], p[1]));
+    const xs = m.map(p => p[0]), ys = m.map(p => p[1]);
+    const w = Math.max(...xs) - Math.min(...xs), h = Math.max(...ys) - Math.min(...ys);
+    this.view.cx = (Math.max(...xs) + Math.min(...xs)) / 2;
+    this.view.cy = (Math.max(...ys) + Math.min(...ys)) / 2;
+    const z = fill ? Math.log2(Math.min(this.view.width * fill / (Math.max(w, 1e-7) * 256), this.view.height * fill / (Math.max(h, 1e-7) * 256))) : maxZoom;
+    this.view.zoom = Math.max(2, Math.min(maxZoom, z));
+    this.saveView(); this.redraw(); this.emit('view');
+  }
+
+  /** Pick the feature of a data layer under (x, y), top layer first. */
+  pickFeature(x: number, y: number): boolean {
+    for (let j = this.doc.layers.length - 1; j >= 0; j--) {
+      const L = this.doc.layers[j];
+      if (L.kind !== 'data' || !L.visible || L.locked) continue;
+      const t = this.doc.table(L);
+      if (!t) continue;
+      const i = featureAt(this.view, L, t, x, y);
+      if (i >= 0) {
+        this.selLayer = L.id; this.selItem = null;
+        this.selFeature = { layerId: L.id, index: i };
+        this.redraw(); this.emit('selection');
+        return true;
+      }
+    }
+    if (this.selFeature) { this.selFeature = null; this.redraw(); this.emit('selection'); }
+    return false;
   }
 
   scaleText() {
@@ -287,7 +354,7 @@ export class Editor {
 
   private bindPointer() {
     const c = this.canvas;
-    let drag: null | { kind: 'pan' | 'move' | 'vertex'; x: number; y: number; cx: number; cy: number; state?: string; vertex?: number; lastLL?: [number, number] } = null;
+    let drag: null | { kind: 'pan' | 'move' | 'vertex'; x: number; y: number; cx: number; cy: number; state?: string; vertex?: number; lastLL?: [number, number]; click?: boolean } = null;
     const pos = (e: PointerEvent | MouseEvent | WheelEvent) => {
       const r = c.getBoundingClientRect();
       return [e.clientX - r.left, e.clientY - r.top] as [number, number];
@@ -315,7 +382,7 @@ export class Editor {
           drag = { kind: 'move', x, y, cx: 0, cy: 0, state: this.doc.state(), lastLL: ll };
         } else {
           if (this.selItem) this.select(this.selLayer, null);
-          drag = { kind: 'pan', x, y, cx: this.view.cx, cy: this.view.cy };   // dragging empty map pans
+          drag = { kind: 'pan', x, y, cx: this.view.cx, cy: this.view.cy, click: true };   // dragging empty map pans; a click picks a feature
         }
       } else if (this.tool === 'text') {
         this.addItem(textItem(ll[0], ll[1], 'Text', this.opts.preset), 'Add text');
@@ -345,6 +412,7 @@ export class Editor {
         const w = this.view.world;
         this.view.cx = drag.cx - (x - drag.x) / w;
         this.view.cy = drag.cy - (y - drag.y) / w;
+        if (Math.hypot(x - drag.x, y - drag.y) > 3) { drag.click = false; this.markMoving(); }
         this.redraw();
       } else if (drag.kind === 'move') {
         const it = this.selectedItem();
@@ -363,7 +431,10 @@ export class Editor {
 
     const end = (e: PointerEvent) => {
       if (!drag) return;
-      if (drag.kind === 'pan') { this.saveView(); c.style.cursor = this.cursorFor(); }
+      if (drag.kind === 'pan') {
+        this.saveView(); c.style.cursor = this.cursorFor();
+        if (drag.click) { const [x, y] = pos(e); this.pickFeature(x, y); }
+      }
       else if (drag.state) {
         const moved = Math.hypot(pos(e)[0] - drag.x, pos(e)[1] - drag.y) > 1;
         if (moved) this.doc.pushUndo(drag.kind === 'vertex' ? 'Move point' : 'Move', drag.state);
@@ -495,6 +566,7 @@ export class Editor {
 
   private validateSelection() {
     if (this.selItem && !this.doc.findItem(this.selItem)[1]) this.selItem = null;
+    if (this.selFeature && !this.doc.layer(this.selFeature.layerId)) this.selFeature = null;
     if (this.selLayer && !this.doc.layer(this.selLayer)) this.selLayer = this.doc.layers[this.doc.layers.length - 1]?.id || null;
     this.emit('selection');
   }
@@ -548,24 +620,89 @@ export class Editor {
     this.doc.changed();
   }
 
+  // ---------------------------------------------------------------- data
+  async importData(files?: File[] | null) {
+    files ||= await pickFiles(DATA_ACCEPT);
+    if (!files?.length) return;
+    this.status('Reading ' + files.map(f => f.name).join(', ') + '…');
+    let got;
+    try { got = await readDataFiles(files); }
+    catch (e: any) { this.status(''); message('Couldn’t read the data', e?.message || String(e)); return; }
+    if (!got.length) { message('No data found', 'Pick a GeoJSON, CSV, KML/KMZ, GPX or shapefile (.zip, or the .shp with its .dbf and .prj).'); return; }
+    this.doc.checkpoint(got.length > 1 ? 'Add data layers' : 'Add data layer');
+    const sel = this.selectedLayer();
+    let above = sel && !['color', 'basemap', 'terrain', 'service'].includes(sel.kind) ? sel.id : null;
+    let last = null;
+    for (const g of got) {
+      const id = this.doc.addTable(g.table);
+      const L = dataLayer(this.doc.uniqueName(g.name), g.geometry, g.fields, { kind: 'file', name: g.name }, id);
+      L.count = g.table.n;
+      if (above) this.doc.addLayer(L, above);
+      else {
+        // just above the background layers, below labels
+        let i = 0;
+        this.doc.layers.forEach((x, j) => { if (['color', 'basemap', 'terrain', 'service', 'data'].includes(x.kind)) i = j + 1; });
+        this.doc.layers.splice(i, 0, L);
+      }
+      above = L.id;
+      last = L;
+    }
+    this.selLayer = last!.id; this.selItem = null; this.selFeature = null;
+    this.doc.changed();
+    this.emit('selection');
+    const all = got.map(g => g.table.bbox()).filter(Boolean) as number[][];
+    if (all.length) this.zoomToLonlats([[Math.min(...all.map(b => b[0])), Math.min(...all.map(b => b[1]))], [Math.max(...all.map(b => b[2])), Math.max(...all.map(b => b[3]))]], 0.85, 16);
+    const n = got.reduce((s, g) => s + g.table.n, 0);
+    this.status(`Added ${n.toLocaleString('sv-SE')} feature${n === 1 ? '' : 's'}`);
+  }
+
+  /** A new data layer of the features of `t` (e.g. made from a selection). */
+  addTableLayer(t: Table, name: string) {
+    this.doc.checkpoint('New layer');
+    const id = this.doc.addTable(t);
+    const L = dataLayer(this.doc.uniqueName(name), t.mainKind(), t.fields.map(f => [f, t.cols[f].kind === 'num' ? 'REAL' : 'TEXT']), { kind: 'derived' }, id);
+    L.count = t.n;
+    this.doc.addLayer(L, this.selLayer);
+    this.select(L.id);
+    this.doc.changed();
+  }
+
   // ---------------------------------------------------------------- files
+  private autosaveChain: Promise<void> = Promise.resolve();
+
   private scheduleAutosave() {
     clearTimeout(this.autosaveTimer);
-    this.autosaveTimer = window.setTimeout(() => {
-      saveAutosave({ body: this.doc.body(), extra: this.doc.extra, fileName: this.doc.fileName, savedAt: Date.now() })
-        .then(() => this.emit('saved' as any));
-    }, 700);
+    this.autosaveTimer = window.setTimeout(() => this.autosaveNow(), 700);
+  }
+
+  /** Keep the map in this browser now (one save at a time, so they never overlap). */
+  autosaveNow(): Promise<void> {
+    clearTimeout(this.autosaveTimer);
+    this.autosaveChain = this.autosaveChain.then(async () => {
+      const d = this.doc;
+      for (const [id, t] of d.tables) await saveTable(id, t.toEntries(`data/${id}`));
+      await saveAutosave({ body: d.body(), extra: d.extra, fileName: d.fileName, savedAt: Date.now(), tables: [...d.tables.keys()] } as any);
+      await pruneTables(new Set(this.doc.tables.keys()));
+      this.emit('saved');
+    }).catch(e => console.warn('Autosave failed', e));
+    return this.autosaveChain;
   }
 
   async restoreAutosave(): Promise<boolean> {
     const a = await loadAutosave();
     if (!a?.body) return false;
     try {
-      const d = MapDocument.fromBody(a.body, a.extra || []);
+      const tableEntries = [];
+      for (const id of (a as any).tables || []) { const e = await loadTable(id); if (e) tableEntries.push(...e); }
+      const d = MapDocument.fromBody(a.body, [...(a.extra || []), ...tableEntries]);
       d.fileName = a.fileName;
       this.setDoc(d);
       return true;
-    } catch { return false; }
+    } catch (e) {
+      console.warn('Could not restore the map kept in this browser', e);
+      message('Couldn’t restore your last map', 'The map kept in this browser couldn’t be read, so a new map was started. If you saved it as a file, open that with File → Open.');
+      return false;
+    }
   }
 
   async newMap() {
