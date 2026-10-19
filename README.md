@@ -1,13 +1,5 @@
-# MapMaker 0.3
+# mapmaker test
 
-A desktop program for designing maps, laid out like an image editor: tools on the left,
-the map in the middle, Properties and Layers on the right. You build a map from layers –
-background maps, laser terrain, map services, your own data, and your own labels, symbols,
-lines and areas – then put it on a page with a title, legend, scale bar, north arrow and
-sources, and export it as PDF or an image.
-
-MapMaker is a fork of ArchMap without the analysis tools. The two programs are separate and
-can be installed side by side.
 
 A **browser version** is being built in [`web/`](web/README.md) – it opens and saves the same
 `.mapmaker` files and can be published on your own website.
