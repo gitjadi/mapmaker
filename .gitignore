@@ -1,0 +1,14 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+# Desktop app runtime data and build output
+data/
+dist/
+build/
+*.spec
+Maps/
+# Web app
+web/node_modules/
+web/dist/
+.DS_Store

@@ -1,0 +1,7 @@
+PySide6>=6.6
+numpy>=1.24
+Pillow>=10.0
+scipy>=1.10
+# Optional: only needed for GeoPackages in a coordinate system other than
+# SWEREF 99 TM / SWEREF 99 local zones / WGS 84 / Web Mercator (e.g. RT 90):
+# pyproj>=3.6
